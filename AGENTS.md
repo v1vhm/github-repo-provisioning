@@ -5,6 +5,7 @@ This file provides context and guidelines for AI agents contributing to the "Por
 ## Project Overview
 - **Purpose:** Automate the creation and management of GitHub repositories and teams, triggered by Port. All changes are recorded in this repo as YAML files (GitOps style).
 - **Tech Stack:** GitHub Actions workflows (YAML) orchestrating Terraform and occasional scripts/CLI. Terraform state stored in Azure Blob storage. GitHub App credentials for auth, Port API for catalog updates.
+- **Plan:** refer to the file `PLAN.md` for detailed design information about the repository.
 
 ## Key Design Decisions
 - **Trunk-Based GitOps:** No pull requests; workflows running via Port will commit directly to `main` with changes.

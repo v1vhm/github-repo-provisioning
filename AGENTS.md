@@ -18,7 +18,7 @@ This file provides context and guidelines for AI agents contributing to the "Por
 Below is the breakdown of tasks to be implemented. Each task should be undertaken by an AI agent sequentially. **Agents: mark tasks as done and update context when completed.**
 
 1. ~~Scaffold Repository Structure~~: Basic directory layout created (`repositories/`, `teams/`, `environments/`, `.github/workflows/`, `.github/actions/`) with placeholder Terraform files and README.
-2. **Implement GitHub App Authentication**: Add a reusable workflow or composite action to retrieve a GitHub App installation token (or configure PAT usage). Ensure this can be used by Terraform and API calls.
+2. ~~Implement GitHub App Authentication~~: Workflows will use `actions/create-github-app-token@v1` directly to obtain installation tokens using `APP_ID` and `APP_PRIVATE_KEY` secrets.
 3. **Terraform Module – Repository**: In `repositories/`, write Terraform config (`main.tf`, `variables.tf`, `outputs.tf`) to create a GitHub repository with configurable name, visibility, description, template (if using GitHub template feature), and optional initial team attachment. Test with a dry run using sample inputs.
 4. **Terraform Module – Team**: In `teams/`, write Terraform config to create a GitHub team with given name, description, privacy, and optionally add members (loop over a list of usernames).
 5. **Workflow – Create Repository**: Develop `.github/workflows/create-repository.yml`. Should parse Port payload (name, template, team, etc.), validate inputs (unique name), execute Terraform in `repositories/` (pass variables), run cookiecutter (maybe via CLI or using an action) to populate the repo, commit YAML file, call Port API to report success.

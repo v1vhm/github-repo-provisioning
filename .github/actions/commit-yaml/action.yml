@@ -1,0 +1,27 @@
+name: 'Commit YAML'
+description: 'Add, commit, and push YAML files'
+inputs:
+  path:
+    description: 'File or directory to commit'
+    required: true
+  message:
+    description: 'Commit message'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure git
+      shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+    - name: Commit changes
+      shell: bash
+      run: |
+        git add "${{ inputs.path }}"
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "${{ inputs.message }}"
+          git push origin HEAD:main
+        fi

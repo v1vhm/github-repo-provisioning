@@ -1,0 +1,217 @@
+name: Create repository from template
+
+on:
+  workflow_dispatch:
+    inputs:
+      port_payload:
+        description: 'Port JSON payload'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  actions: read
+
+env:
+  GH_ORG: ${{ secrets.GH_ORG }}
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse payload
+        id: parse
+        run: |
+          echo '${{ inputs.port_payload }}' | jq -e '.runId,.properties.repo_name,.properties.description,.properties.visibility,.properties.owner_team_slug,.properties.owner_team_permission,.properties.cookiecutter_template,.properties.cookiecutter_context' >/dev/null
+          echo "RUN_ID=$(echo '${{ inputs.port_payload }}' | jq -r .runId)" >> $GITHUB_ENV
+          echo "BLUEPRINT=$(echo '${{ inputs.port_payload }}' | jq -r .blueprint)" >> $GITHUB_ENV
+          echo "REQUESTED_BY=$(echo '${{ inputs.port_payload }}' | jq -r .requestedBy)" >> $GITHUB_ENV
+          echo "REPO_NAME=$(echo '${{ inputs.port_payload }}' | jq -r .properties.repo_name)" >> $GITHUB_ENV
+          echo "DESCRIPTION=$(echo '${{ inputs.port_payload }}' | jq -r .properties.description)" >> $GITHUB_ENV
+          echo "VISIBILITY=$(echo '${{ inputs.port_payload }}' | jq -r .properties.visibility)" >> $GITHUB_ENV
+          echo "OWNER_TEAM_SLUG=$(echo '${{ inputs.port_payload }}' | jq -r .properties.owner_team_slug)" >> $GITHUB_ENV
+          echo "OWNER_TEAM_PERMISSION=$(echo '${{ inputs.port_payload }}' | jq -r .properties.owner_team_permission)" >> $GITHUB_ENV
+          echo "COOKIECUTTER_TEMPLATE=$(echo '${{ inputs.port_payload }}' | jq -r .properties.cookiecutter_template)" >> $GITHUB_ENV
+          echo "COOKIECUTTER_CONTEXT=$(echo '${{ inputs.port_payload }}' | jq -c .properties.cookiecutter_context)" >> $GITHUB_ENV
+          echo "CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
+      - name: Get GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          installation-id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+
+      - name: Export token
+        run: echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> $GITHUB_ENV
+
+      - name: Validate repository name
+        run: ./scripts/validate-name.sh "$GH_ORG" "$REPO_NAME"
+
+      - name: Draft manifest
+        run: |
+          mkdir -p repositories/manifests
+          context_lines=$(echo "$COOKIECUTTER_CONTEXT" | jq -r 'to_entries[] | "      \(.key): \"\(.value)\""')
+          cat > repositories/manifests/$REPO_NAME.yaml <<MANIFEST
+apiVersion: v1
+kind: GitHubRepository
+metadata:
+  name: $REPO_NAME
+  createdAt: "$CREATED_AT"
+  createdBy: "$REQUESTED_BY"
+spec:
+  description: "$DESCRIPTION"
+  visibility: "$VISIBILITY"
+  ownerTeam:
+    slug: "$OWNER_TEAM_SLUG"
+    permission: "$OWNER_TEAM_PERMISSION"
+  template:
+    source: "$COOKIECUTTER_TEMPLATE"
+    context:
+$context_lines
+status:
+  phase: creating
+MANIFEST
+          echo "MANIFEST=repositories/manifests/$REPO_NAME.yaml" >> $GITHUB_ENV
+
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform init
+        working-directory: repositories/modules/repo
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ secrets.AZURE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ secrets.AZURE_STORAGE_CONTAINER }}" \
+            -backend-config="key=repos/${REPO_NAME}.tfstate" \
+            -backend-config="use_azuread_auth=true"
+
+      - name: Terraform apply
+        working-directory: repositories/modules/repo
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          terraform apply -auto-approve \
+            -var "org=$GH_ORG" \
+            -var "repo_name=$REPO_NAME" \
+            -var "description=$DESCRIPTION" \
+            -var "visibility=$VISIBILITY" \
+            -var "owner_team_slug=$OWNER_TEAM_SLUG" \
+            -var "owner_perm=$OWNER_TEAM_PERMISSION"
+          terraform output -json > tf.json
+          echo "repo_id=$(jq -r .repo_id.value tf.json)" >> $GITHUB_ENV
+          echo "html_url=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
+          echo "ssh_url=$(jq -r .ssh_url.value tf.json)" >> $GITHUB_ENV
+          echo "repo_created=true" >> $GITHUB_ENV
+
+      - name: Scaffold repository
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+        run: |
+          pip install cookiecutter
+          tmpdir=$(mktemp -d)
+          cookiecutter "$COOKIECUTTER_TEMPLATE" --no-input --output-dir "$tmpdir" --extra-context "$COOKIECUTTER_CONTEXT"
+          generated_dir=$(ls -d "$tmpdir"/*)
+          cd "$generated_dir"
+          git init
+          git remote add origin https://x-access-token:${GITHUB_TOKEN}@github.com/${GH_ORG}/${REPO_NAME}.git
+          git add .
+          git commit -m "Initial commit from template"
+          git branch -M main
+          git push origin main
+
+      - name: Upsert entity to Port
+        uses: port-labs/port-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: UPSERT
+          identifier: ${{ env.REPO_NAME }}
+          title: ${{ env.REPO_NAME }}
+          blueprint: ${{ env.BLUEPRINT }}
+          properties: |
+            {
+              "description": "${{ env.DESCRIPTION }}",
+              "htmlUrl": "${{ env.html_url }}",
+              "sshUrl": "${{ env.ssh_url }}",
+              "visibility": "${{ env.VISIBILITY }}"
+            }
+          relations: |
+            {
+              "owner": "${{ env.OWNER_TEAM_SLUG }}"
+            }
+          runId: ${{ env.RUN_ID }}
+          status: success
+
+      - name: Finalize manifest
+        run: |
+          context_lines=$(echo "$COOKIECUTTER_CONTEXT" | jq -r 'to_entries[] | "      \(.key): \"\(.value)\""')
+          cat > "$MANIFEST" <<MANIFEST
+apiVersion: v1
+kind: GitHubRepository
+metadata:
+  name: $REPO_NAME
+  createdAt: "$CREATED_AT"
+  createdBy: "$REQUESTED_BY"
+spec:
+  description: "$DESCRIPTION"
+  visibility: "$VISIBILITY"
+  ownerTeam:
+    slug: "$OWNER_TEAM_SLUG"
+    permission: "$OWNER_TEAM_PERMISSION"
+  template:
+    source: "$COOKIECUTTER_TEMPLATE"
+    context:
+$context_lines
+status:
+  id: "$repo_id"
+  htmlUrl: "$html_url"
+  sshUrl: "$ssh_url"
+  phase: active
+MANIFEST
+
+      - name: Commit manifest
+        uses: ./.github/actions/commit-yaml
+        with:
+          path: ${{ env.MANIFEST }}
+          message: Add repository '${{ env.REPO_NAME }}' (automated via Port)
+
+      - name: Report failure to Port
+        if: failure()
+        uses: port-labs/port-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          status: failure
+          logMessage: 'Workflow failed'
+
+      - name: Mark manifest failed
+        if: failure()
+        run: |
+          if [ -f "$MANIFEST" ]; then
+            sed -i 's/phase: creating/phase: failed/' "$MANIFEST"
+          fi

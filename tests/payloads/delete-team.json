@@ -1,0 +1,6 @@
+{
+  "ref": "refs/heads/main",
+  "inputs": {
+    "port_payload": "{\"runId\":\"R-203\",\"blueprint\":\"githubTeam\",\"requestedBy\":\"user8\",\"properties\":{\"team_slug\":\"old-team\",\"force\":true,\"note\":\"decommission\"}}"
+  }
+}

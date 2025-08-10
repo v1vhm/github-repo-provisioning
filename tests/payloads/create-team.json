@@ -1,0 +1,6 @@
+{
+  "ref": "refs/heads/main",
+  "inputs": {
+    "port_payload": "{\"runId\":\"R-201\",\"blueprint\":\"githubTeam\",\"requestedBy\":\"user6\",\"properties\":{\"team_name\":\"Core Team\",\"privacy\":\"closed\",\"description\":\"Core engineers\",\"parent_team_slug\":\"platform\",\"members\":[{\"username\":\"octocat\",\"role\":\"maintainer\"},{\"username\":\"monalisa\",\"role\":\"member\"}],\"alias_slugs\":[\"core\",\"engineering\"]}}"
+  }
+}

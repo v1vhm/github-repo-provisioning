@@ -1,0 +1,6 @@
+{
+  "ref": "refs/heads/main",
+  "inputs": {
+    "port_payload": "{\"runId\":\"R-123\",\"blueprint\":\"githubRepository\",\"requestedBy\":\"user1\",\"properties\":{\"repo_name\":\"sample-repo\",\"description\":\"Sample repository\",\"visibility\":\"private\",\"owner_team_slug\":\"core-team\",\"owner_team_permission\":\"maintain\",\"cookiecutter_template\":\"https://github.com/example/template\",\"cookiecutter_context\":{\"project\":\"sample\"}}}"
+  }
+}

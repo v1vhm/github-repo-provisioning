@@ -1,0 +1,6 @@
+{
+  "ref": "refs/heads/main",
+  "inputs": {
+    "port_payload": "{\"runId\":\"R-101\",\"blueprint\":\"githubRepository\",\"requestedBy\":\"user4\",\"properties\":{\"repo_name\":\"existing-repo\",\"team_slug\":\"core-team\",\"permission\":\"maintain\",\"mirror_on_team_manifest\":true,\"note\":\"grant access\"}}"
+  }
+}

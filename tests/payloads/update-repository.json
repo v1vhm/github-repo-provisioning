@@ -1,0 +1,6 @@
+{
+  "ref": "refs/heads/main",
+  "inputs": {
+    "port_payload": "{\"runId\":\"R-456\",\"blueprint\":\"githubRepository\",\"requestedBy\":\"user2\",\"properties\":{\"repo_name\":\"existing-repo\",\"description\":\"Updated description\",\"visibility\":\"public\",\"homepage_url\":\"https://example.com\",\"topics\":[\"automation\",\"gh\"],\"delete_branch_on_merge\":true,\"enable_issues\":true,\"enable_wiki\":false,\"default_branch\":\"main\",\"custom_properties\":{\"ci\":\"enabled\"}}}"
+  }
+}

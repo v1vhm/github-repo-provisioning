@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Revoke team access from repository
 
 on:
@@ -7,6 +10,11 @@ on:
         description: "Port JSON payload"
         required: true
         type: string
+      mock:
+        description: "Run in mock mode, skipping side effects"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -48,6 +56,11 @@ jobs:
           echo "NOTE=$NOTE" >> $GITHUB_ENV
           echo "NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
 
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
+
       - name: Get GitHub App token
         id: app-token
         uses: ./.github/actions/get-gh-app-token
@@ -74,7 +87,7 @@ jobs:
           fi
 
       - name: Revoke access
-        if: env.HAS_ACCESS == 'true'
+        if: ${{ inputs.mock == 'false' && env.HAS_ACCESS == 'true' }}
         run: |
           set -euo pipefail
           for i in 1 2; do
@@ -128,6 +141,7 @@ jobs:
           PY
 
       - name: Upsert repository in Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -143,7 +157,7 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Upsert team in Port
-        if: env.MIRROR == 'true'
+        if: ${{ inputs.mock == 'false' && env.MIRROR == 'true' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -159,17 +173,18 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Stage team manifest
-        if: env.MIRROR == 'true' && env.TEAM_CHANGED == '1'
+        if: ${{ inputs.mock == 'false' && env.MIRROR == 'true' && env.TEAM_CHANGED == '1' }}
         run: git add "${{ env.TEAM_MANIFEST }}"
 
       - name: Commit manifest(s)
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.REPO_MANIFEST }}
           message: ${{ env.COMMIT_MESSAGE }}
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}

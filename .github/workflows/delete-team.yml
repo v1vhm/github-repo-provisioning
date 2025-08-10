@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Delete GitHub team
 
 on:
@@ -7,6 +10,11 @@ on:
         description: "Port JSON payload"
         required: true
         type: string
+      mock:
+        description: "Run in mock mode, skipping side effects"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -49,6 +57,11 @@ jobs:
           echo "NOTE=$NOTE" >> $GITHUB_ENV
           echo "NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
 
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
+
       - name: Get GitHub App token
         id: app-token
         uses: ./.github/actions/get-gh-app-token
@@ -58,6 +71,7 @@ jobs:
           installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
 
       - name: Azure login
+        if: ${{ inputs.mock == 'false' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -92,7 +106,7 @@ jobs:
           fi
 
       - name: Terraform destroy
-        if: env.MODE == 'destroy'
+        if: ${{ inputs.mock == 'false' && env.MODE == 'destroy' }}
         working-directory: teams/modules/team
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -122,7 +136,7 @@ jobs:
           done
 
       - name: Verify deletion
-        if: env.MODE == 'destroy'
+        if: ${{ inputs.mock == 'false' && env.MODE == 'destroy' }}
         run: |
           set -e
           if gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}" >/dev/null 2>&1; then
@@ -139,6 +153,7 @@ jobs:
           echo "PORT_MESSAGE=$msg" >> $GITHUB_ENV
 
       - name: Clean manifests
+        if: ${{ inputs.mock == 'false' }}
         id: manifests
         run: |
           set -euo pipefail
@@ -173,6 +188,7 @@ jobs:
           echo "team_removed=$removed" >> $GITHUB_OUTPUT
 
       - name: Determine commit path
+        if: ${{ inputs.mock == 'false' }}
         run: |
           path="repositories/manifests"
           if [ "${{ steps.manifests.outputs.repos }}" = "[]" ]; then
@@ -181,18 +197,21 @@ jobs:
           echo "COMMIT_PATH=$path" >> $GITHUB_ENV
 
       - name: Build commit message
+        if: ${{ inputs.mock == 'false' }}
         run: |
           msg="Delete team '${TEAM_SLUG}' via Terraform (Port)"
           if [ -n "$NOTE" ]; then msg="$msg - $NOTE"; fi
           echo "COMMIT_MSG=$msg" >> $GITHUB_ENV
 
       - name: Commit manifests
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.COMMIT_PATH }}
           message: ${{ env.COMMIT_MSG }}
 
       - name: Delete team in Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -205,7 +224,7 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -217,7 +236,7 @@ jobs:
 
   update-port-repos:
     needs: delete
-    if: needs.delete.outputs.repos != '[]'
+    if: ${{ inputs.mock == 'false' && needs.delete.outputs.repos != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:

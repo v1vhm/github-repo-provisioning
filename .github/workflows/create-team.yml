@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Create GitHub team
 
 on:
@@ -7,6 +10,11 @@ on:
         description: "Port JSON payload"
         required: true
         type: string
+      mock:
+        description: "Run in mock mode, skipping side effects"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -60,6 +68,11 @@ jobs:
           else
             echo "PARENT_REL=null" >> $GITHUB_ENV
           fi
+
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
 
       - name: Get GitHub App token
         id: app-token
@@ -131,6 +144,7 @@ jobs:
           echo "MANIFEST=teams/manifests/${TEAM_SLUG}.yaml" >> $GITHUB_ENV
 
       - name: Azure login
+        if: ${{ inputs.mock == 'false' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -138,6 +152,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform init
+        if: ${{ inputs.mock == 'false' }}
         working-directory: teams/modules/team
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -154,6 +169,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform apply
+        if: ${{ inputs.mock == 'false' }}
         working-directory: teams/modules/team
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -176,6 +192,7 @@ jobs:
           echo "HTML_URL=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
 
       - name: Upsert entity to Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -201,6 +218,7 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Finalize manifest
+        if: ${{ inputs.mock == 'false' }}
         run: |
           members_block=$(echo "$TF_MEMBERS" | jq -r '.[] | "- username: \(.username)\n  role: \(.role)"')
           aliases_block=$(echo "$ALIASES" | jq -r '.[] | "- \(.)"')
@@ -228,13 +246,14 @@ jobs:
             MANIFEST
 
       - name: Commit manifest
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.MANIFEST }}
           message: Add team '${{ env.TEAM_SLUG }}' (automated via Port)
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -245,7 +264,7 @@ jobs:
           logMessage: 'Workflow failed'
 
       - name: Mark manifest failed
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         run: |
           if [ -f "$MANIFEST" ]; then
             sed -i 's/phase: creating/phase: failed/' "$MANIFEST"

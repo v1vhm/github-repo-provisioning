@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Create repository from template
 
 on:
@@ -7,6 +10,11 @@ on:
         description: 'Port JSON payload'
         required: true
         type: string
+      mock:
+        description: 'Run in mock mode, skipping side effects'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -40,6 +48,11 @@ jobs:
           echo "COOKIECUTTER_TEMPLATE=$(echo '${{ inputs.port_payload }}' | jq -r .properties.cookiecutter_template)" >> $GITHUB_ENV
           echo "COOKIECUTTER_CONTEXT=$(echo '${{ inputs.port_payload }}' | jq -c .properties.cookiecutter_context)" >> $GITHUB_ENV
           echo "CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
 
       - name: Get GitHub App token
         id: app-token
@@ -79,6 +92,7 @@ jobs:
           echo "MANIFEST=repositories/manifests/$REPO_NAME.yaml" >> $GITHUB_ENV
 
       - name: Azure login
+        if: ${{ inputs.mock == 'false' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -86,6 +100,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform init
+        if: ${{ inputs.mock == 'false' }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -102,6 +117,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform apply
+        if: ${{ inputs.mock == 'false' }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -124,6 +140,7 @@ jobs:
           echo "repo_created=true" >> $GITHUB_ENV
 
       - name: Scaffold repository
+        if: ${{ inputs.mock == 'false' }}
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
         run: |
@@ -140,6 +157,7 @@ jobs:
           git push origin main
 
       - name: Upsert entity to Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -163,6 +181,7 @@ jobs:
           status: success
 
       - name: Finalize manifest
+        if: ${{ inputs.mock == 'false' }}
         run: |
           context_lines=$(echo "$COOKIECUTTER_CONTEXT" | jq -r 'to_entries[] | "      \(.key): \"\(.value)\""')
             cat > "$MANIFEST" <<MANIFEST
@@ -190,13 +209,14 @@ jobs:
             MANIFEST
 
       - name: Commit manifest
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.MANIFEST }}
           message: Add repository '${{ env.REPO_NAME }}' (automated via Port)
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}

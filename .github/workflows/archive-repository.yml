@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Archive GitHub repository
 
 on:
@@ -7,6 +10,11 @@ on:
         description: "Port JSON payload"
         required: true
         type: string
+      mock:
+        description: "Run in mock mode, skipping side effects"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -38,6 +46,11 @@ jobs:
           echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
           NOTE=$(echo "$PAYLOAD" | jq -r '.properties.note // ""')
           echo "NOTE=$NOTE" >> $GITHUB_ENV
+
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
 
       - name: Load manifest
         run: |
@@ -89,6 +102,7 @@ jobs:
           installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
 
       - name: Azure login
+        if: ${{ inputs.mock == 'false' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -103,6 +117,7 @@ jobs:
           echo "API_SSH_URL=$(jq -r .ssh_url repo.json)" >> $GITHUB_ENV
 
       - name: Terraform init
+        if: ${{ inputs.mock == 'false' }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -119,6 +134,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform plan and apply
+        if: ${{ inputs.mock == 'false' }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -169,6 +185,7 @@ jobs:
           echo "ARCHIVED=$(jq -r .archived.value tf.json)" >> $GITHUB_ENV
 
       - name: Compute messages
+        if: ${{ inputs.mock == 'false' }}
         run: |
           if [ "$TF_HAS_CHANGES" = "1" ]; then
             MSG="repository archived via Terraform"
@@ -184,6 +201,7 @@ jobs:
           echo "PORT_MESSAGE=$MSG" >> $GITHUB_ENV
 
       - name: Upsert entity to Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -204,6 +222,7 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Update manifest
+        if: ${{ inputs.mock == 'false' }}
         run: |
           set -e
           pip install pyyaml >/dev/null
@@ -229,13 +248,14 @@ jobs:
           PY
 
       - name: Commit manifest
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.MANIFEST }}
           message: ${{ env.COMMIT_MESSAGE }}
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}

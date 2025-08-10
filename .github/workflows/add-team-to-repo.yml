@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Grant team access to repository
 
 on:
@@ -7,6 +10,11 @@ on:
         description: "Port JSON payload"
         required: true
         type: string
+      mock:
+        description: "Run in mock mode, skipping side effects"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -52,6 +60,11 @@ jobs:
           echo "NOTE=$NOTE" >> $GITHUB_ENV
           echo "NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
 
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
+
       - name: Get GitHub App token
         id: app-token
         uses: ./.github/actions/get-gh-app-token
@@ -83,7 +96,7 @@ jobs:
           echo "ACTION=$action" >> $GITHUB_ENV
 
       - name: Apply permission
-        if: env.ACTION != 'noop'
+        if: ${{ inputs.mock == 'false' && env.ACTION != 'noop' }}
         run: |
           for i in 1 2; do
             if gh api --method PUT "/orgs/${GH_ORG}/teams/${TEAM_SLUG}/repos/${GH_ORG}/${REPO_NAME}" -f permission="${PERMISSION}"; then
@@ -96,6 +109,7 @@ jobs:
           done
 
       - name: Verify permission
+        if: ${{ inputs.mock == 'false' }}
         run: |
           final=$(gh api "repos/${GH_ORG}/${REPO_NAME}/teams" -q '.[] | select(.slug=="'${TEAM_SLUG}'") | .permission' || true)
           if [ -z "$final" ]; then
@@ -109,6 +123,7 @@ jobs:
           echo "PORT_MESSAGE=$msg" >> $GITHUB_ENV
 
       - name: Build commit message
+        if: ${{ inputs.mock == 'false' }}
         run: |
           msg="Grant team '${TEAM_SLUG}' '${FINAL_PERMISSION}' on repo '${REPO_NAME}' (via Port)"
           if [ -n "$NOTE" ]; then
@@ -117,6 +132,7 @@ jobs:
           echo "COMMIT_MESSAGE=$msg" >> $GITHUB_ENV
 
       - name: Update manifests
+        if: ${{ inputs.mock == 'false' }}
         run: |
           set -euo pipefail
           pip install pyyaml >/dev/null
@@ -145,6 +161,7 @@ jobs:
           PY
 
       - name: Upsert entity to Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -160,17 +177,18 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Stage team manifest
-        if: env.MIRROR == 'true' && env.TEAM_CHANGED == '1'
+        if: ${{ inputs.mock == 'false' && env.MIRROR == 'true' && env.TEAM_CHANGED == '1' }}
         run: git add "${{ env.TEAM_MANIFEST }}"
 
       - name: Commit manifest(s)
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.REPO_MANIFEST }}
           message: ${{ env.COMMIT_MESSAGE }}
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}

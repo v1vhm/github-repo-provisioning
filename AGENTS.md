@@ -33,7 +33,7 @@ Below is the breakdown of tasks to be implemented. Each task should be undertake
 8. ~~Workflow – Update Repository~~: Workflow `.github/workflows/update-repository.yml` updates repository settings, commits manifests, and syncs with Port.
 9. ~~Workflow – Add Team to Repo~~: `.github/workflows/add-team-to-repo.yml` grants or upgrades team access via GitHub API, updates repository and optional team manifests, commits, and syncs with Port.
 10. ~~Workflow – Remove Team from Repo~~: `.github/workflows/remove-team-from-repo.yml` revokes access, updates YAML manifests, commits, and syncs with Port.
-11. **Workflow – Archive Repository**: `.github/workflows/archive-repository.yml`. Validate, call Terraform or API to archive, update YAML, commit, update Port.
+11. ~~Workflow – Archive Repository~~: `.github/workflows/archive-repository.yml` archives repositories via Terraform, updates manifests, commits, and syncs with Port.
 12. **Workflow – Delete Team**: `.github/workflows/delete-team.yml`. Validate, delete via Terraform or API, update/remove YAML(s), commit, update Port.
 13. **Placeholder – Add Environment**: `.github/workflows/add-environment.yml`. (Design stub for now; actual implementation later.)
 14. **Reusable Components**: Refactor common code. E.g., create a composite action for committing YAML (stage, commit, push), one for Port API calls (to avoid rewriting curl logic), and one for Terraform apply steps. Update workflows to use these.
@@ -63,3 +63,5 @@ Below is the breakdown of tasks to be implemented. Each task should be undertake
 - Idempotent: succeeds with no-op when the team has no repository access.
 - Guardrail: fails early if the repository is archived.
 - Improvement: centralize Port blueprint names to avoid hardcoding across workflows.
+- Archive repository workflow added; uses Terraform `archived` flag in the repo module instead of direct API calls, ensuring lifecycle ownership via state.
+- Repo module now supports an `archived` variable and output. Consider updating the plan to include unarchive handling and a reusable Port upsert action.

@@ -42,3 +42,8 @@ variable "owner_perm" {
   type    = string
   default = null
 }
+
+variable "archived" {
+  type    = bool
+  default = false
+}

@@ -227,7 +227,7 @@ jobs:
           logMessage: 'Workflow failed'
 
       - name: Mark manifest failed
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         run: |
           if [ -f "$MANIFEST" ]; then
             sed -i 's/phase: creating/phase: failed/' "$MANIFEST"

@@ -10,6 +10,10 @@ output "ssh_url" {
   value = github_repository.this.ssh_clone_url
 }
 
+output "archived" {
+  value = github_repository.this.archived
+}
+
 output "default_branch" {
   value = github_repository.this.default_branch
 }

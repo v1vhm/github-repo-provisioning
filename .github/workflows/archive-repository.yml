@@ -1,0 +1,259 @@
+name: Archive GitHub repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      port_payload:
+        description: "Port JSON payload"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+env:
+  GH_ORG: ${{ secrets.GH_ORG }}
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse payload
+        run: |
+          set -euo pipefail
+          PAYLOAD='${{ inputs.port_payload }}'
+          echo "$PAYLOAD" | jq -e '.runId,.blueprint,.properties.repo_name' >/dev/null
+          echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)" >> $GITHUB_ENV
+          echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)" >> $GITHUB_ENV
+          echo "REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)" >> $GITHUB_ENV
+          REPO_NAME=$(echo "$PAYLOAD" | jq -r .properties.repo_name | xargs)
+          if [ -z "$REPO_NAME" ]; then echo "repo_name required" >&2; exit 1; fi
+          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+          NOTE=$(echo "$PAYLOAD" | jq -r '.properties.note // ""')
+          echo "NOTE=$NOTE" >> $GITHUB_ENV
+
+      - name: Load manifest
+        run: |
+          set -e
+          MANIFEST_PATH="repositories/manifests/${REPO_NAME}.yaml"
+          if [ ! -f "$MANIFEST_PATH" ]; then
+            echo "Manifest $MANIFEST_PATH not found" >&2; exit 1; fi
+          pip install pyyaml >/dev/null
+          python - <<'PY' >> $GITHUB_ENV
+            import os, yaml, json
+            repo=os.environ['REPO_NAME']
+            path=f"repositories/manifests/{repo}.yaml"
+            with open(path) as f:
+                data=yaml.safe_load(f)
+            spec=data.get('spec',{})
+            settings=spec.get('settings',{})
+            owner=spec.get('ownerTeam',{})
+            status=data.get('status',{})
+            print(f"DESCRIPTION={spec.get('description','')}")
+            print(f"VISIBILITY={spec.get('visibility','')}")
+            print(f"HOMEPAGE_URL={spec.get('homepageUrl','')}")
+            import json as j
+            print(f"TOPICS={j.dumps(spec.get('topics',[]))}")
+            print(f"DELETE_BRANCH_ON_MERGE={str(settings.get('deleteBranchOnMerge', True)).lower()}")
+            print(f"ENABLE_ISSUES={str(settings.get('enableIssues', True)).lower()}")
+            print(f"ENABLE_WIKI={str(settings.get('enableWiki', False)).lower()}")
+            print(f"DEFAULT_BRANCH={settings.get('defaultBranch','')}")
+            print(f"OWNER_TEAM_SLUG={owner.get('slug','')}")
+            print(f"OWNER_TEAM_PERMISSION={owner.get('permission','')}")
+            print(f"EXISTING_ID={status.get('id','')}")
+            print(f"EXISTING_HTML_URL={status.get('htmlUrl','')}")
+            print(f"EXISTING_SSH_URL={status.get('sshUrl','')}")
+          PY
+          echo "MANIFEST=$MANIFEST_PATH" >> $GITHUB_ENV
+
+      - name: Prepare Terraform vars
+        run: |
+          [ -n "$HOMEPAGE_URL" ] && echo "HOMEPAGE_URL_VAR=$HOMEPAGE_URL" >> $GITHUB_ENV || echo "HOMEPAGE_URL_VAR=null" >> $GITHUB_ENV
+          [ -n "$DEFAULT_BRANCH" ] && echo "DEFAULT_BRANCH_VAR=$DEFAULT_BRANCH" >> $GITHUB_ENV || echo "DEFAULT_BRANCH_VAR=null" >> $GITHUB_ENV
+          [ -n "$OWNER_TEAM_SLUG" ] && echo "OWNER_TEAM_SLUG_VAR=$OWNER_TEAM_SLUG" >> $GITHUB_ENV || echo "OWNER_TEAM_SLUG_VAR=null" >> $GITHUB_ENV
+          [ -n "$OWNER_TEAM_PERMISSION" ] && echo "OWNER_TEAM_PERMISSION_VAR=$OWNER_TEAM_PERMISSION" >> $GITHUB_ENV || echo "OWNER_TEAM_PERMISSION_VAR=null" >> $GITHUB_ENV
+
+      - name: Get GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          installation-id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+
+      - name: Export token
+        run: |
+          echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> $GITHUB_ENV
+          echo "GH_TOKEN=${{ steps.app-token.outputs.token }}" >> $GITHUB_ENV
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Confirm repository exists
+        run: |
+          gh api repos/${GH_ORG}/${REPO_NAME} >repo.json
+          echo "API_ID=$(jq -r .node_id repo.json)" >> $GITHUB_ENV
+          echo "API_HTML_URL=$(jq -r .html_url repo.json)" >> $GITHUB_ENV
+          echo "API_SSH_URL=$(jq -r .ssh_url repo.json)" >> $GITHUB_ENV
+
+      - name: Terraform init
+        working-directory: repositories/modules/repo
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ secrets.AZURE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ secrets.AZURE_STORAGE_CONTAINER }}" \
+            -backend-config="key=repos/${REPO_NAME}.tfstate" \
+            -backend-config="use_azuread_auth=true"
+
+      - name: Terraform plan and apply
+        working-directory: repositories/modules/repo
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -e
+          attempt=1
+          while [ $attempt -le 2 ]; do
+            terraform plan -out=tfplan -detailed-exitcode \
+              -var "org=$GH_ORG" \
+              -var "repo_name=$REPO_NAME" \
+              -var "description=$DESCRIPTION" \
+              -var "visibility=$VISIBILITY" \
+              -var "homepage_url=$HOMEPAGE_URL_VAR" \
+              -var "topics=$TOPICS" \
+              -var "delete_branch_on_merge=$DELETE_BRANCH_ON_MERGE" \
+              -var "enable_issues=$ENABLE_ISSUES" \
+              -var "enable_wiki=$ENABLE_WIKI" \
+              -var "default_branch=$DEFAULT_BRANCH_VAR" \
+              -var "owner_team_slug=$OWNER_TEAM_SLUG_VAR" \
+              -var "owner_perm=$OWNER_TEAM_PERMISSION_VAR" \
+              -var "archived=true" >/tmp/plan.log && code=$? || code=$?
+            if [ $code -eq 0 ] || [ $code -eq 2 ]; then
+              TF_CODE=$code
+              break
+            elif grep -q 'Error acquiring the state lock' /tmp/plan.log && [ $attempt -lt 2 ]; then
+              sleep 5
+              attempt=$((attempt+1))
+              continue
+            else
+              cat /tmp/plan.log
+              exit $code
+            fi
+          done
+          if [ "$TF_CODE" -eq 2 ]; then
+            echo "TF_HAS_CHANGES=1" >> $GITHUB_ENV
+          else
+            echo "TF_HAS_CHANGES=0" >> $GITHUB_ENV
+          fi
+          terraform apply -auto-approve tfplan
+          terraform output -json > tf.json
+          echo "REPO_ID=$(jq -r .repo_id.value tf.json)" >> $GITHUB_ENV
+          echo "HTML_URL=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
+          echo "SSH_URL=$(jq -r .ssh_url.value tf.json)" >> $GITHUB_ENV
+          echo "ARCHIVED=$(jq -r .archived.value tf.json)" >> $GITHUB_ENV
+
+      - name: Compute messages
+        run: |
+          if [ "$TF_HAS_CHANGES" = "1" ]; then
+            MSG="repository archived via Terraform"
+          else
+            MSG="no-op (already archived)"
+          fi
+          if [ -n "$NOTE" ]; then
+            MSG="$MSG - $NOTE"
+            echo "COMMIT_MESSAGE=Archive repository '$REPO_NAME' via Terraform (Port) - $NOTE" >> $GITHUB_ENV
+          else
+            echo "COMMIT_MESSAGE=Archive repository '$REPO_NAME' via Terraform (Port)" >> $GITHUB_ENV
+          fi
+          echo "PORT_MESSAGE=$MSG" >> $GITHUB_ENV
+
+      - name: Upsert entity to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          identifier: ${{ env.REPO_NAME }}
+          title: ${{ env.REPO_NAME }}
+          blueprint: ${{ env.BLUEPRINT }}
+          properties: |
+            {
+              "description": "${{ env.DESCRIPTION }}",
+              "htmlUrl": "${{ env.HTML_URL }}",
+              "sshUrl": "${{ env.SSH_URL }}",
+              "visibility": "${{ env.VISIBILITY }}",
+              "archived": true
+            }
+          runId: ${{ env.RUN_ID }}
+          status: success
+          logMessage: ${{ env.PORT_MESSAGE }}
+
+      - name: Update manifest
+        run: |
+          set -e
+          pip install pyyaml >/dev/null
+          python - <<'PY' >> $GITHUB_ENV
+            import os, yaml, datetime
+            repo=os.environ['REPO_NAME']
+            path=f"repositories/manifests/{repo}.yaml"
+            with open(path) as f:
+                data=yaml.safe_load(f)
+            spec=data.setdefault('spec',{})
+            spec['archived']=True
+            status=data.setdefault('status',{})
+            status['id']=os.environ.get('REPO_ID') or os.environ.get('EXISTING_ID') or os.environ.get('API_ID')
+            status['htmlUrl']=os.environ.get('HTML_URL') or os.environ.get('EXISTING_HTML_URL') or os.environ.get('API_HTML_URL')
+            status['sshUrl']=os.environ.get('SSH_URL') or os.environ.get('EXISTING_SSH_URL') or os.environ.get('API_SSH_URL')
+            status['phase']='active'
+            now=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+            status['archivedAt']=now
+            status['lastUpdatedAt']=now
+            with open(path,'w') as f:
+                yaml.safe_dump(data,f,sort_keys=False)
+            print(f"MANIFEST={path}")
+          PY
+
+      - name: Commit manifest
+        uses: ./.github/actions/commit-yaml
+        with:
+          path: ${{ env.MANIFEST }}
+          message: ${{ env.COMMIT_MESSAGE }}
+
+      - name: Report failure to Port
+        if: failure()
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          status: failure
+          logMessage: 'Workflow failed'
+
+# Tests:
+# - Happy path: active repo archived via Terraform, manifest updated, Port success.
+# - No-op: already archived repo -> Terraform no changes, timestamps updated.
+# - Repo missing: gh api fails, Port failure reported.
+# - Backend transient: simulate state lock -> retry succeeds.
+# - Commit collision: manifest push retried on failure.
+

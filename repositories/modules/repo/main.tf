@@ -21,6 +21,7 @@ resource "github_repository" "this" {
   has_issues             = var.enable_issues
   has_wiki               = var.enable_wiki
   delete_branch_on_merge = var.delete_branch_on_merge
+  archived               = var.archived
   lifecycle { prevent_destroy = true }
 }
 

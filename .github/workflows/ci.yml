@@ -14,9 +14,20 @@ jobs:
         id: get_actionlint
         run: bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
         shell: bash
-      - name: Check workflow files
-        run: ${{ steps.get_actionlint.outputs.executable }} -color
+      - name: Run actionlint
+        id: actionlint
+        continue-on-error: true
+        run: |
+          curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/testdata/format/sarif_template.txt -o actionlint.sarif.tmpl
+          ${{ steps.get_actionlint.outputs.executable }} -format "$(cat actionlint.sarif.tmpl)" > actionlint.sarif
         shell: bash
+      - name: Upload SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: actionlint.sarif
+      - name: Fail if actionlint found issues
+        if: steps.actionlint.outcome != 'success'
+        run: exit 1
   terraform:
     runs-on: ubuntu-latest
     strategy:

@@ -38,14 +38,16 @@ jobs:
           set -euo pipefail
           PAYLOAD='${{ inputs.port_payload }}'
           echo "$PAYLOAD" | jq -e '.runId,.blueprint,.properties.repo_name' >/dev/null
-          echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)" >> $GITHUB_ENV
-          echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)" >> $GITHUB_ENV
-          echo "REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)" >> $GITHUB_ENV
           REPO_NAME=$(echo "$PAYLOAD" | jq -r .properties.repo_name | xargs)
           if [ -z "$REPO_NAME" ]; then echo "repo_name required" >&2; exit 1; fi
-          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
           NOTE=$(echo "$PAYLOAD" | jq -r '.properties.note // ""')
-          echo "NOTE=$NOTE" >> $GITHUB_ENV
+          {
+            echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)"
+            echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)"
+            echo "REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)"
+            echo "REPO_NAME=$REPO_NAME"
+            echo "NOTE=$NOTE"
+          } >> "$GITHUB_ENV"
 
       - name: Mock run notice
         if: ${{ inputs.mock == 'true' }}
@@ -59,7 +61,7 @@ jobs:
           if [ ! -f "$MANIFEST_PATH" ]; then
             echo "Manifest $MANIFEST_PATH not found" >&2; exit 1; fi
           pip install pyyaml >/dev/null
-          python - <<'PY' >> $GITHUB_ENV
+          python - <<'PY' >> "$GITHUB_ENV"
             import os, yaml, json
             repo=os.environ['REPO_NAME']
             path=f"repositories/manifests/{repo}.yaml"
@@ -84,14 +86,32 @@ jobs:
             print(f"EXISTING_HTML_URL={status.get('htmlUrl','')}")
             print(f"EXISTING_SSH_URL={status.get('sshUrl','')}")
           PY
-          echo "MANIFEST=$MANIFEST_PATH" >> $GITHUB_ENV
+          echo "MANIFEST=$MANIFEST_PATH" >> "$GITHUB_ENV"
 
       - name: Prepare Terraform vars
         run: |
-          [ -n "$HOMEPAGE_URL" ] && echo "HOMEPAGE_URL_VAR=$HOMEPAGE_URL" >> $GITHUB_ENV || echo "HOMEPAGE_URL_VAR=null" >> $GITHUB_ENV
-          [ -n "$DEFAULT_BRANCH" ] && echo "DEFAULT_BRANCH_VAR=$DEFAULT_BRANCH" >> $GITHUB_ENV || echo "DEFAULT_BRANCH_VAR=null" >> $GITHUB_ENV
-          [ -n "$OWNER_TEAM_SLUG" ] && echo "OWNER_TEAM_SLUG_VAR=$OWNER_TEAM_SLUG" >> $GITHUB_ENV || echo "OWNER_TEAM_SLUG_VAR=null" >> $GITHUB_ENV
-          [ -n "$OWNER_TEAM_PERMISSION" ] && echo "OWNER_TEAM_PERMISSION_VAR=$OWNER_TEAM_PERMISSION" >> $GITHUB_ENV || echo "OWNER_TEAM_PERMISSION_VAR=null" >> $GITHUB_ENV
+          {
+            if [ -n "$HOMEPAGE_URL" ]; then
+              echo "HOMEPAGE_URL_VAR=$HOMEPAGE_URL"
+            else
+              echo "HOMEPAGE_URL_VAR=null"
+            fi
+            if [ -n "$DEFAULT_BRANCH" ]; then
+              echo "DEFAULT_BRANCH_VAR=$DEFAULT_BRANCH"
+            else
+              echo "DEFAULT_BRANCH_VAR=null"
+            fi
+            if [ -n "$OWNER_TEAM_SLUG" ]; then
+              echo "OWNER_TEAM_SLUG_VAR=$OWNER_TEAM_SLUG"
+            else
+              echo "OWNER_TEAM_SLUG_VAR=null"
+            fi
+            if [ -n "$OWNER_TEAM_PERMISSION" ]; then
+              echo "OWNER_TEAM_PERMISSION_VAR=$OWNER_TEAM_PERMISSION"
+            else
+              echo "OWNER_TEAM_PERMISSION_VAR=null"
+            fi
+          } >> "$GITHUB_ENV"
 
       - name: Get GitHub App token
         id: app-token
@@ -111,10 +131,12 @@ jobs:
 
       - name: Confirm repository exists
         run: |
-          gh api repos/${GH_ORG}/${REPO_NAME} >repo.json
-          echo "API_ID=$(jq -r .node_id repo.json)" >> $GITHUB_ENV
-          echo "API_HTML_URL=$(jq -r .html_url repo.json)" >> $GITHUB_ENV
-          echo "API_SSH_URL=$(jq -r .ssh_url repo.json)" >> $GITHUB_ENV
+          gh api "repos/${GH_ORG}/${REPO_NAME}" > repo.json
+          {
+            echo "API_ID=$(jq -r .node_id repo.json)"
+            echo "API_HTML_URL=$(jq -r .html_url repo.json)"
+            echo "API_SSH_URL=$(jq -r .ssh_url repo.json)"
+          } >> "$GITHUB_ENV"
 
       - name: Terraform init
         if: ${{ inputs.mock == 'false' }}
@@ -145,7 +167,7 @@ jobs:
         run: |
           set -e
           attempt=1
-          while [ $attempt -le 2 ]; do
+          while [ "$attempt" -le 2 ]; do
             terraform plan -out=tfplan -detailed-exitcode \
               -var "org=$GH_ORG" \
               -var "repo_name=$REPO_NAME" \
@@ -160,10 +182,10 @@ jobs:
               -var "owner_team_slug=$OWNER_TEAM_SLUG_VAR" \
               -var "owner_perm=$OWNER_TEAM_PERMISSION_VAR" \
               -var "archived=true" >/tmp/plan.log && code=$? || code=$?
-            if [ $code -eq 0 ] || [ $code -eq 2 ]; then
+            if [ "$code" -eq 0 ] || [ "$code" -eq 2 ]; then
               TF_CODE=$code
               break
-            elif grep -q 'Error acquiring the state lock' /tmp/plan.log && [ $attempt -lt 2 ]; then
+            elif grep -q 'Error acquiring the state lock' /tmp/plan.log && [ "$attempt" -lt 2 ]; then
               sleep 5
               attempt=$((attempt+1))
               continue
@@ -173,16 +195,19 @@ jobs:
             fi
           done
           if [ "$TF_CODE" -eq 2 ]; then
-            echo "TF_HAS_CHANGES=1" >> $GITHUB_ENV
+            TF_HAS_CHANGES=1
           else
-            echo "TF_HAS_CHANGES=0" >> $GITHUB_ENV
+            TF_HAS_CHANGES=0
           fi
           terraform apply -auto-approve tfplan
           terraform output -json > tf.json
-          echo "REPO_ID=$(jq -r .repo_id.value tf.json)" >> $GITHUB_ENV
-          echo "HTML_URL=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
-          echo "SSH_URL=$(jq -r .ssh_url.value tf.json)" >> $GITHUB_ENV
-          echo "ARCHIVED=$(jq -r .archived.value tf.json)" >> $GITHUB_ENV
+          {
+            echo "TF_HAS_CHANGES=$TF_HAS_CHANGES"
+            echo "REPO_ID=$(jq -r .repo_id.value tf.json)"
+            echo "HTML_URL=$(jq -r .html_url.value tf.json)"
+            echo "SSH_URL=$(jq -r .ssh_url.value tf.json)"
+            echo "ARCHIVED=$(jq -r .archived.value tf.json)"
+          } >> "$GITHUB_ENV"
 
       - name: Compute messages
         if: ${{ inputs.mock == 'false' }}
@@ -194,11 +219,14 @@ jobs:
           fi
           if [ -n "$NOTE" ]; then
             MSG="$MSG - $NOTE"
-            echo "COMMIT_MESSAGE=Archive repository '$REPO_NAME' via Terraform (Port) - $NOTE" >> $GITHUB_ENV
+            COMMIT_MESSAGE="Archive repository '$REPO_NAME' via Terraform (Port) - $NOTE"
           else
-            echo "COMMIT_MESSAGE=Archive repository '$REPO_NAME' via Terraform (Port)" >> $GITHUB_ENV
+            COMMIT_MESSAGE="Archive repository '$REPO_NAME' via Terraform (Port)"
           fi
-          echo "PORT_MESSAGE=$MSG" >> $GITHUB_ENV
+          {
+            echo "COMMIT_MESSAGE=$COMMIT_MESSAGE"
+            echo "PORT_MESSAGE=$MSG"
+          } >> "$GITHUB_ENV"
 
       - name: Upsert entity to Port
         if: ${{ inputs.mock == 'false' }}
@@ -226,7 +254,7 @@ jobs:
         run: |
           set -e
           pip install pyyaml >/dev/null
-          python - <<'PY' >> $GITHUB_ENV
+          python - <<'PY' >> "$GITHUB_ENV"
             import os, yaml, datetime
             repo=os.environ['REPO_NAME']
             path=f"repositories/manifests/{repo}.yaml"

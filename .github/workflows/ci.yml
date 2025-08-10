@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/actionlint@v1
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        directory:
+          - repositories/modules/repo
+          - teams/modules/team
+          - repositories
+          - teams
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v2
+      - name: Terraform init
+        run: terraform init -backend=false
+        working-directory: ${{ matrix.directory }}
+      - name: Terraform validate
+        run: terraform validate
+        working-directory: ${{ matrix.directory }}

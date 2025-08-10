@@ -1,8 +1,3 @@
-Great. I’ll create a detailed markdown-based repository design and development plan for your GitHub automation system, including workflows for Port-triggered repo and team lifecycle management. I’ll also include a structured `AGENTS.md` to provide persistent context and coordination for AI-assisted code generation, along with instructions to update it during development.
-
-I’ll let you know as soon as it’s ready for your review.
-
-
 # Design for Automated GitHub Repository Management with Port Integration
 
 ## Overview

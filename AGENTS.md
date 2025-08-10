@@ -53,5 +53,6 @@ Below is the breakdown of tasks to be implemented. Each task should be undertake
  - Update team workflow implemented with membership strategies:
    - `members_mode: set` manages full membership via Terraform (removes absent users).
    - `members_mode: add`/`remove` adjust memberships incrementally via GitHub API.
-   - Non-org users are skipped and reported as warnings back to Port.
+- Non-org users are skipped and reported as warnings back to Port.
 - Resolved YAML syntax issues in workflow here-doc sections to ensure GitHub Actions load correctly.
+- Fixed `create-team` workflow actionlint issues by upgrading `azure/login` to v2 and correcting Terraform step indentation.

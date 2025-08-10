@@ -24,7 +24,7 @@ resource "github_team" "this" {
 }
 
 resource "github_team_membership" "members" {
-  for_each = { for m in var.members : m.username => m }
+  for_each = var.members != null ? { for m in var.members : m.username => m } : {}
   team_id  = github_team.this.id
   username = each.value.username
   role     = each.value.role

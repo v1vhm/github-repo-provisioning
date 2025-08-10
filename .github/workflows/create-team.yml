@@ -176,7 +176,7 @@ jobs:
           echo "HTML_URL=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
 
       - name: Upsert entity to Port
-        uses: port-labs/port-action@v1
+        uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
@@ -235,7 +235,7 @@ jobs:
 
       - name: Report failure to Port
         if: failure()
-        uses: port-labs/port-action@v1
+        uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}

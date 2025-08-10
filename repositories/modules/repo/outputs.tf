@@ -9,3 +9,7 @@ output "html_url" {
 output "ssh_url" {
   value = github_repository.this.ssh_clone_url
 }
+
+output "default_branch" {
+  value = github_repository.this.default_branch
+}

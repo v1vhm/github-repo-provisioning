@@ -62,17 +62,17 @@ jobs:
           if [ -f "$MANIFEST_PATH" ]; then
             pip install pyyaml >/dev/null
             python - <<'PY' >> $GITHUB_ENV
-import os, json, yaml
-p=os.environ['MANIFEST_PATH']
-with open(p) as f:
-  data=yaml.safe_load(f)
-print(f"EXISTING_CREATED_AT={data.get('metadata',{}).get('createdAt','')}")
-print(f"EXISTING_CREATED_BY={data.get('metadata',{}).get('createdBy','')}")
-import json as j
-print(f"EXISTING_ALIASES={j.dumps(data.get('spec',{}).get('aliases',[]))}")
-print(f"EXISTING_ID={data.get('status',{}).get('id','')}")
-print(f"EXISTING_HTML_URL={data.get('status',{}).get('htmlUrl','')}")
-PY
+              import os, json, yaml
+              p=os.environ['MANIFEST_PATH']
+              with open(p) as f:
+                data=yaml.safe_load(f)
+              print(f"EXISTING_CREATED_AT={data.get('metadata',{}).get('createdAt','')}")
+              print(f"EXISTING_CREATED_BY={data.get('metadata',{}).get('createdBy','')}")
+              import json as j
+              print(f"EXISTING_ALIASES={j.dumps(data.get('spec',{}).get('aliases',[]))}")
+              print(f"EXISTING_ID={data.get('status',{}).get('id','')}")
+              print(f"EXISTING_HTML_URL={data.get('status',{}).get('htmlUrl','')}")
+            PY
           else
             echo "EXISTING_CREATED_AT=" >> $GITHUB_ENV
             echo "EXISTING_CREATED_BY=" >> $GITHUB_ENV
@@ -182,11 +182,11 @@ PY
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           set -e
-          if [ "$TF_MEMBERS" != "null" ]; then
-            cat > members.auto.tfvars.json <<EOF
-{ "members": $TF_MEMBERS }
-EOF
-          else
+            if [ "$TF_MEMBERS" != "null" ]; then
+              cat > members.auto.tfvars.json <<EOF
+              { "members": $TF_MEMBERS }
+              EOF
+            else
             rm -f members.auto.tfvars.json
           fi
           terraform plan -out=tfplan -detailed-exitcode \
@@ -290,28 +290,28 @@ EOF
           members_block=$(echo "$FINAL_MEMBERS" | jq -r '.[] | "- username: \(.username)\n  role: \(.role)"')
           aliases_block=$(echo "$ALIASES_FINAL" | jq -r '.[] | "- \(.)"')
           cat > teams/manifests/${TEAM_SLUG}.yaml <<MANIFEST
-apiVersion: v1
-kind: GitHubTeam
-metadata:
-  name: "$TEAM_NAME"
-  slug: "$TEAM_SLUG"
-$(if [ -n "$EXISTING_CREATED_AT" ]; then echo "  createdAt: \"$EXISTING_CREATED_AT\""; fi)
-$(if [ -n "$EXISTING_CREATED_BY" ]; then echo "  createdBy: \"$EXISTING_CREATED_BY\""; fi)
-spec:
-  description: "$DESCRIPTION"
-  privacy: "$PRIVACY"
-  parent:
-    slug: "${PARENT_TEAM_SLUG:-null}"
-  members:
-$(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
-  aliases:
-$(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
-status:
-  id: "${TEAM_ID:-$EXISTING_ID}"
-  htmlUrl: "${HTML_URL:-$EXISTING_HTML_URL}"
-  phase: active
-  lastUpdatedAt: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-MANIFEST
+            apiVersion: v1
+            kind: GitHubTeam
+            metadata:
+              name: "$TEAM_NAME"
+              slug: "$TEAM_SLUG"
+            $(if [ -n "$EXISTING_CREATED_AT" ]; then echo "            createdAt: \"$EXISTING_CREATED_AT\""; fi)
+            $(if [ -n "$EXISTING_CREATED_BY" ]; then echo "            createdBy: \"$EXISTING_CREATED_BY\""; fi)
+            spec:
+              description: "$DESCRIPTION"
+              privacy: "$PRIVACY"
+              parent:
+                slug: "${PARENT_TEAM_SLUG:-null}"
+              members:
+            $(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
+              aliases:
+            $(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
+            status:
+              id: "${TEAM_ID:-$EXISTING_ID}"
+              htmlUrl: "${HTML_URL:-$EXISTING_HTML_URL}"
+              phase: active
+              lastUpdatedAt: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            MANIFEST
 
       - name: Commit manifest
         uses: ./.github/actions/commit-yaml

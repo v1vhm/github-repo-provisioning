@@ -67,30 +67,30 @@ jobs:
             echo "Manifest $MANIFEST_PATH not found" >&2; exit 1; fi
           pip install pyyaml >/dev/null
           python - <<'PY' >> $GITHUB_ENV
-import os, json, yaml
-p=os.environ['MANIFEST_PATH']
-with open(p) as f:
-  data=yaml.safe_load(f)
-meta=data.get('metadata',{})
-spec=data.get('spec',{})
-settings=spec.get('settings',{})
-status=data.get('status',{})
-print(f"EXISTING_DESCRIPTION={spec.get('description','')}")
-print(f"EXISTING_VISIBILITY={spec.get('visibility','')}")
-print(f"EXISTING_HOMEPAGE_URL={spec.get('homepageUrl','') or ''}")
-import json as j
-print(f"EXISTING_TOPICS={j.dumps(spec.get('topics',[]))}")
-print(f"EXISTING_DELETE_BRANCH_ON_MERGE={str(settings.get('deleteBranchOnMerge', True)).lower()}")
-print(f"EXISTING_ENABLE_ISSUES={str(settings.get('enableIssues', True)).lower()}")
-print(f"EXISTING_ENABLE_WIKI={str(settings.get('enableWiki', False)).lower()}")
-print(f"EXISTING_DEFAULT_BRANCH={settings.get('defaultBranch','')}")
-print(f"EXISTING_CUSTOM={j.dumps(spec.get('custom', {}))}")
-print(f"EXISTING_ID={status.get('id','')}")
-print(f"EXISTING_HTML_URL={status.get('htmlUrl','')}")
-print(f"EXISTING_SSH_URL={status.get('sshUrl','')}")
-print(f"EXISTING_CREATED_AT={meta.get('createdAt','')}")
-print(f"EXISTING_CREATED_BY={meta.get('createdBy','')}")
-PY
+            import os, json, yaml
+            p=os.environ['MANIFEST_PATH']
+            with open(p) as f:
+              data=yaml.safe_load(f)
+            meta=data.get('metadata',{})
+            spec=data.get('spec',{})
+            settings=spec.get('settings',{})
+            status=data.get('status',{})
+            print(f"EXISTING_DESCRIPTION={spec.get('description','')}")
+            print(f"EXISTING_VISIBILITY={spec.get('visibility','')}")
+            print(f"EXISTING_HOMEPAGE_URL={spec.get('homepageUrl','') or ''}")
+            import json as j
+            print(f"EXISTING_TOPICS={j.dumps(spec.get('topics',[]))}")
+            print(f"EXISTING_DELETE_BRANCH_ON_MERGE={str(settings.get('deleteBranchOnMerge', True)).lower()}")
+            print(f"EXISTING_ENABLE_ISSUES={str(settings.get('enableIssues', True)).lower()}")
+            print(f"EXISTING_ENABLE_WIKI={str(settings.get('enableWiki', False)).lower()}")
+            print(f"EXISTING_DEFAULT_BRANCH={settings.get('defaultBranch','')}")
+            print(f"EXISTING_CUSTOM={j.dumps(spec.get('custom', {}))}")
+            print(f"EXISTING_ID={status.get('id','')}")
+            print(f"EXISTING_HTML_URL={status.get('htmlUrl','')}")
+            print(f"EXISTING_SSH_URL={status.get('sshUrl','')}")
+            print(f"EXISTING_CREATED_AT={meta.get('createdAt','')}")
+            print(f"EXISTING_CREATED_BY={meta.get('createdBy','')}")
+          PY
 
       - name: Compute desired state
         run: |
@@ -187,20 +187,20 @@ PY
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           set -e
-          cat > payload.auto.tfvars.json <<VARS
-{
-  "org": "$GH_ORG",
-  "repo_name": "$REPO_NAME",
-  "description": "$DESCRIPTION",
-  "visibility": "$VISIBILITY",
-  "homepage_url": $HOMEPAGE_URL_JSON,
-  "topics": $TOPICS_FINAL,
-  "delete_branch_on_merge": $DELETE_BRANCH_ON_MERGE,
-  "enable_issues": $ENABLE_ISSUES,
-  "enable_wiki": $ENABLE_WIKI,
-  "default_branch": $DEFAULT_BRANCH_JSON
-}
-VARS
+            cat > payload.auto.tfvars.json <<VARS
+            {
+              "org": "$GH_ORG",
+              "repo_name": "$REPO_NAME",
+              "description": "$DESCRIPTION",
+              "visibility": "$VISIBILITY",
+              "homepage_url": $HOMEPAGE_URL_JSON,
+              "topics": $TOPICS_FINAL,
+              "delete_branch_on_merge": $DELETE_BRANCH_ON_MERGE,
+              "enable_issues": $ENABLE_ISSUES,
+              "enable_wiki": $ENABLE_WIKI,
+              "default_branch": $DEFAULT_BRANCH_JSON
+            }
+            VARS
           terraform plan -out=tfplan -detailed-exitcode >/tmp/plan.log && code=$? || code=$?
           if [ $code -eq 2 ]; then
             echo "TF_HAS_CHANGES=1" >> $GITHUB_ENV
@@ -254,46 +254,46 @@ VARS
           set -e
           pip install pyyaml >/dev/null
           python - <<'PY' >> $GITHUB_ENV
-import os, yaml, json, datetime
-repo=os.environ['REPO_NAME']
-path=f"repositories/manifests/{repo}.yaml"
-if os.path.exists(path):
-  with open(path) as f:
-    data=yaml.safe_load(f)
-else:
-  data={'apiVersion':'v1','kind':'GitHubRepository','metadata':{'name':repo}}
-meta=data.setdefault('metadata',{})
-if os.getenv('EXISTING_CREATED_AT'):
-  meta['createdAt']=os.environ['EXISTING_CREATED_AT']
-if os.getenv('EXISTING_CREATED_BY'):
-  meta['createdBy']=os.environ['EXISTING_CREATED_BY']
-spec=data.setdefault('spec',{})
-spec['description']=os.environ['DESCRIPTION']
-spec['visibility']=os.environ['VISIBILITY']
-spec['homepageUrl']=os.environ.get('HOMEPAGE_URL') or None
-spec['topics']=json.loads(os.environ['TOPICS_FINAL'])
-settings=spec.setdefault('settings',{})
-settings['deleteBranchOnMerge']=os.environ['DELETE_BRANCH_ON_MERGE'].lower()=='true'
-settings['enableIssues']=os.environ['ENABLE_ISSUES'].lower()=='true'
-settings['enableWiki']=os.environ['ENABLE_WIKI'].lower()=='true'
-branch=os.environ.get('DEFAULT_BRANCH')
-settings['defaultBranch']=branch if branch else None
-custom=json.loads(os.environ['CUSTOM_FINAL'])
-if custom:
-  spec['custom']=custom
-elif 'custom' in spec:
-  del spec['custom']
-status=data.setdefault('status',{})
-status['id']=os.environ.get('REPO_ID') or os.environ.get('EXISTING_ID')
-status['htmlUrl']=os.environ.get('HTML_URL') or os.environ.get('EXISTING_HTML_URL')
-status['sshUrl']=os.environ.get('SSH_URL') or os.environ.get('EXISTING_SSH_URL')
-status['phase']='active'
-status['lastUpdatedAt']=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-os.makedirs('repositories/manifests', exist_ok=True)
-with open(path,'w') as f:
-  yaml.safe_dump(data,f,sort_keys=False)
-print(f"MANIFEST={path}")
-PY
+            import os, yaml, json, datetime
+            repo=os.environ['REPO_NAME']
+            path=f"repositories/manifests/{repo}.yaml"
+            if os.path.exists(path):
+              with open(path) as f:
+                data=yaml.safe_load(f)
+            else:
+              data={'apiVersion':'v1','kind':'GitHubRepository','metadata':{'name':repo}}
+            meta=data.setdefault('metadata',{})
+            if os.getenv('EXISTING_CREATED_AT'):
+              meta['createdAt']=os.environ['EXISTING_CREATED_AT']
+            if os.getenv('EXISTING_CREATED_BY'):
+              meta['createdBy']=os.environ['EXISTING_CREATED_BY']
+            spec=data.setdefault('spec',{})
+            spec['description']=os.environ['DESCRIPTION']
+            spec['visibility']=os.environ['VISIBILITY']
+            spec['homepageUrl']=os.environ.get('HOMEPAGE_URL') or None
+            spec['topics']=json.loads(os.environ['TOPICS_FINAL'])
+            settings=spec.setdefault('settings',{})
+            settings['deleteBranchOnMerge']=os.environ['DELETE_BRANCH_ON_MERGE'].lower()=='true'
+            settings['enableIssues']=os.environ['ENABLE_ISSUES'].lower()=='true'
+            settings['enableWiki']=os.environ['ENABLE_WIKI'].lower()=='true'
+            branch=os.environ.get('DEFAULT_BRANCH')
+            settings['defaultBranch']=branch if branch else None
+            custom=json.loads(os.environ['CUSTOM_FINAL'])
+            if custom:
+              spec['custom']=custom
+            elif 'custom' in spec:
+              del spec['custom']
+            status=data.setdefault('status',{})
+            status['id']=os.environ.get('REPO_ID') or os.environ.get('EXISTING_ID')
+            status['htmlUrl']=os.environ.get('HTML_URL') or os.environ.get('EXISTING_HTML_URL')
+            status['sshUrl']=os.environ.get('SSH_URL') or os.environ.get('EXISTING_SSH_URL')
+            status['phase']='active'
+            status['lastUpdatedAt']=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+            os.makedirs('repositories/manifests', exist_ok=True)
+            with open(path,'w') as f:
+              yaml.safe_dump(data,f,sort_keys=False)
+            print(f"MANIFEST={path}")
+          PY
 
       - name: Commit manifest
         uses: ./.github/actions/commit-yaml

@@ -26,5 +26,5 @@ variable "parent_team_slug" {
 
 variable "members" {
   type    = list(object({ username = string, role = string }))
-  default = []
+  default = null
 }

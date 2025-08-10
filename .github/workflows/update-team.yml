@@ -1,0 +1,341 @@
+name: Update GitHub team
+
+on:
+  workflow_dispatch:
+    inputs:
+      port_payload:
+        description: "Port JSON payload"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  actions: read
+
+env:
+  GH_ORG: ${{ secrets.GH_ORG }}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse payload
+        id: parse
+        run: |
+          set -euo pipefail
+          PAYLOAD='${{ inputs.port_payload }}'
+          echo "$PAYLOAD" | jq -e '.runId,.blueprint,.properties.team_slug' >/dev/null
+          echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)" >> $GITHUB_ENV
+          echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)" >> $GITHUB_ENV
+          echo "REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)" >> $GITHUB_ENV
+          TEAM_SLUG=$(echo "$PAYLOAD" | jq -r .properties.team_slug | tr 'A-Z' 'a-z' | xargs)
+          echo "TEAM_SLUG=$TEAM_SLUG" >> $GITHUB_ENV
+          NEW_TEAM_NAME=$(echo "$PAYLOAD" | jq -r '.properties.new_team_name // ""' | xargs)
+          DESC_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.description // ""' | xargs)
+          PRIV_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.privacy // ""' | xargs)
+          if [[ -n "$PRIV_PAYLOAD" && "$PRIV_PAYLOAD" != "closed" && "$PRIV_PAYLOAD" != "secret" ]]; then
+            echo "Invalid privacy: $PRIV_PAYLOAD" >&2; exit 1; fi
+          MODE=$(echo "$PAYLOAD" | jq -r '.properties.members_mode // ""' | xargs)
+          if [[ -n "$MODE" && "$MODE" != "set" && "$MODE" != "add" && "$MODE" != "remove" ]]; then
+            echo "Invalid members_mode: $MODE" >&2; exit 1; fi
+          PARENT_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.parent_team_slug // ""' | xargs)
+          MEMBERS=$(echo "$PAYLOAD" | jq -c '.properties.members // []')
+          ALIASES_PAYLOAD=$(echo "$PAYLOAD" | jq -c '.properties.aliases // empty')
+          echo "NEW_TEAM_NAME=$NEW_TEAM_NAME" >> $GITHUB_ENV
+          echo "DESCRIPTION_PAYLOAD=$DESC_PAYLOAD" >> $GITHUB_ENV
+          echo "PRIVACY_PAYLOAD=$PRIV_PAYLOAD" >> $GITHUB_ENV
+          echo "PARENT_TEAM_SLUG_PAYLOAD=$PARENT_PAYLOAD" >> $GITHUB_ENV
+          echo "MEMBERS_MODE=$MODE" >> $GITHUB_ENV
+          echo "MEMBERS=$MEMBERS" >> $GITHUB_ENV
+          echo "ALIASES_PAYLOAD=$ALIASES_PAYLOAD" >> $GITHUB_ENV
+
+      - name: Load existing manifest
+        run: |
+          set -e
+          MANIFEST_PATH="teams/manifests/${TEAM_SLUG}.yaml"
+          if [ -f "$MANIFEST_PATH" ]; then
+            pip install pyyaml >/dev/null
+            python - <<'PY' >> $GITHUB_ENV
+import os, json, yaml
+p=os.environ['MANIFEST_PATH']
+with open(p) as f:
+  data=yaml.safe_load(f)
+print(f"EXISTING_CREATED_AT={data.get('metadata',{}).get('createdAt','')}")
+print(f"EXISTING_CREATED_BY={data.get('metadata',{}).get('createdBy','')}")
+import json as j
+print(f"EXISTING_ALIASES={j.dumps(data.get('spec',{}).get('aliases',[]))}")
+print(f"EXISTING_ID={data.get('status',{}).get('id','')}")
+print(f"EXISTING_HTML_URL={data.get('status',{}).get('htmlUrl','')}")
+PY
+          else
+            echo "EXISTING_CREATED_AT=" >> $GITHUB_ENV
+            echo "EXISTING_CREATED_BY=" >> $GITHUB_ENV
+            echo "EXISTING_ALIASES=[]" >> $GITHUB_ENV
+            echo "EXISTING_ID=" >> $GITHUB_ENV
+            echo "EXISTING_HTML_URL=" >> $GITHUB_ENV
+          fi
+
+      - name: Get GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          installation-id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+
+      - name: Export token
+        run: echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> $GITHUB_ENV
+
+      - name: Fetch current team
+        run: |
+          set -e
+          info=$(gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}")
+          echo "CURRENT_NAME=$(echo "$info" | jq -r .name)" >> $GITHUB_ENV
+          echo "CURRENT_DESC=$(echo "$info" | jq -r '.description // ""')" >> $GITHUB_ENV
+          echo "CURRENT_PRIVACY=$(echo "$info" | jq -r .privacy)" >> $GITHUB_ENV
+          echo "CURRENT_PARENT=$(echo "$info" | jq -r '.parent.slug // ""')" >> $GITHUB_ENV
+          echo "TEAM_ID=$(echo "$info" | jq -r .id)" >> $GITHUB_ENV
+          echo "HTML_URL=$(echo "$info" | jq -r .html_url)" >> $GITHUB_ENV
+
+      - name: Validate parent team
+        if: env.PARENT_TEAM_SLUG_PAYLOAD != ''
+        run: |
+          if [ "${PARENT_TEAM_SLUG_PAYLOAD}" = "${TEAM_SLUG}" ]; then
+            echo "Parent cannot be the team itself" >&2; exit 1; fi
+          if ! gh api "orgs/${GH_ORG}/teams/${PARENT_TEAM_SLUG_PAYLOAD}" >/dev/null 2>&1; then
+            echo "Parent team ${PARENT_TEAM_SLUG_PAYLOAD} not found" >&2; exit 1; fi
+
+      - name: Filter members
+        run: |
+          set -e
+          valid='[]'
+          skipped=''
+          for row in $(echo "$MEMBERS" | jq -c '.[]'); do
+            username=$(echo "$row" | jq -r .username | xargs)
+            role=$(echo "$row" | jq -r .role | xargs)
+            if [[ "$role" != "member" && "$role" != "maintainer" ]]; then
+              skipped="$skipped $username"
+              continue
+            fi
+            if gh api "orgs/${GH_ORG}/members/${username}" >/dev/null 2>&1; then
+              valid=$(echo "$valid" | jq ". + [{\"username\":\"$username\",\"role\":\"$role\"}]")
+            else
+              skipped="$skipped $username"
+            fi
+          done
+          echo "VALID_MEMBERS=$valid" >> $GITHUB_ENV
+          if [[ -n "$skipped" ]]; then
+            echo "SKIPPED_MEMBERS=$skipped" >> $GITHUB_ENV
+          fi
+
+      - name: Determine desired state
+        run: |
+          TEAM_NAME=${NEW_TEAM_NAME:-$CURRENT_NAME}
+          DESCRIPTION=${DESCRIPTION_PAYLOAD:-$CURRENT_DESC}
+          PRIVACY=${PRIVACY_PAYLOAD:-$CURRENT_PRIVACY}
+          PARENT_SLUG=${PARENT_TEAM_SLUG_PAYLOAD:-$CURRENT_PARENT}
+          if [ "${MEMBERS_MODE}" = "set" ]; then
+            echo "TF_MEMBERS=$VALID_MEMBERS" >> $GITHUB_ENV
+          else
+            echo "TF_MEMBERS=null" >> $GITHUB_ENV
+          fi
+          if [ -n "${ALIASES_PAYLOAD}" ]; then
+            ALIASES_FINAL=${ALIASES_PAYLOAD}
+          else
+            ALIASES_FINAL=${EXISTING_ALIASES}
+          fi
+          echo "TEAM_NAME=$TEAM_NAME" >> $GITHUB_ENV
+          echo "DESCRIPTION=$DESCRIPTION" >> $GITHUB_ENV
+          echo "PRIVACY=$PRIVACY" >> $GITHUB_ENV
+          echo "PARENT_TEAM_SLUG=$PARENT_SLUG" >> $GITHUB_ENV
+          echo "ALIASES_FINAL=$ALIASES_FINAL" >> $GITHUB_ENV
+
+      - name: Terraform init
+        working-directory: teams/modules/team
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ secrets.AZURE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ secrets.AZURE_STORAGE_CONTAINER }}" \
+            -backend-config="key=teams/${TEAM_SLUG}.tfstate" \
+            -backend-config="use_azuread_auth=true"
+
+      - name: Terraform plan and apply
+        working-directory: teams/modules/team
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -e
+          if [ "$TF_MEMBERS" != "null" ]; then
+            cat > members.auto.tfvars.json <<EOF
+{ "members": $TF_MEMBERS }
+EOF
+          else
+            rm -f members.auto.tfvars.json
+          fi
+          terraform plan -out=tfplan -detailed-exitcode \
+            -var "org=$GH_ORG" \
+            -var "team_name=$TEAM_NAME" \
+            -var "privacy=$PRIVACY" \
+            -var "description=$DESCRIPTION" \
+            -var "parent_team_slug=$PARENT_TEAM_SLUG" \
+            >/tmp/plan.log && code=$? || code=$?
+          if [ $code -eq 2 ]; then
+            echo "TF_HAS_CHANGES=1" >> $GITHUB_ENV
+          elif [ $code -eq 0 ]; then
+            echo "TF_HAS_CHANGES=0" >> $GITHUB_ENV
+          else
+            cat /tmp/plan.log
+            exit $code
+          fi
+          terraform apply -auto-approve tfplan
+
+      - name: Membership changes
+        if: env.MEMBERS_MODE == 'add' || env.MEMBERS_MODE == 'remove'
+        run: |
+          changes=0
+          if [ "${MEMBERS_MODE}" = "add" ]; then
+            for row in $(echo "$VALID_MEMBERS" | jq -c '.[]'); do
+              username=$(echo "$row" | jq -r .username)
+              role=$(echo "$row" | jq -r .role)
+              if gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}/memberships/${username}" -X PUT -f "role=$role" >/dev/null 2>&1; then
+                changes=$((changes+1))
+              fi
+            done
+          else
+            for row in $(echo "$VALID_MEMBERS" | jq -c '.[]'); do
+              username=$(echo "$row" | jq -r .username)
+              if gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}/memberships/${username}" -X DELETE >/dev/null 2>&1; then
+                changes=$((changes+1))
+              fi
+            done
+          fi
+          echo "MEMBERSHIP_CHANGES=$changes" >> $GITHUB_ENV
+
+      - name: Set membership changes default
+        if: env.MEMBERS_MODE == '' || env.MEMBERS_MODE == 'set'
+        run: echo "MEMBERSHIP_CHANGES=0" >> $GITHUB_ENV
+
+      - name: Gather final membership
+        run: |
+          all=$(gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}/members" --paginate --jq '.[].login')
+          json='[]'
+          for u in $all; do
+            role=$(gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}/memberships/$u" --jq .role)
+            json=$(echo "$json" | jq ". + [{\"username\":\"$u\",\"role\":\"$role\"}]")
+          done
+          echo "FINAL_MEMBERS=$json" >> $GITHUB_ENV
+
+      - name: Compute change count and message
+        run: |
+          total=$((TF_HAS_CHANGES + MEMBERSHIP_CHANGES))
+          if [ -n "$ALIASES_PAYLOAD" ] && [ "$ALIASES_PAYLOAD" != "$EXISTING_ALIASES" ]; then
+            total=$((total+1))
+          fi
+          echo "CHANGES=$total" >> $GITHUB_ENV
+          msg=""
+          if [ -n "$SKIPPED_MEMBERS" ]; then
+            msg="Skipped users:$SKIPPED_MEMBERS"
+          fi
+          if [ "$total" -eq 0 ]; then
+            if [ -n "$msg" ]; then
+              msg="no-op (already up to date) $msg"
+            else
+              msg="no-op (already up to date)"
+            fi
+          fi
+          echo "PORT_MESSAGE=$msg" >> $GITHUB_ENV
+
+      - name: Upsert entity to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          identifier: ${{ env.TEAM_SLUG }}
+          title: ${{ env.TEAM_NAME }}
+          blueprint: ${{ env.BLUEPRINT }}
+          properties: |
+            {
+              "description": "${{ env.DESCRIPTION }}",
+              "privacy": "${{ env.PRIVACY }}",
+              "htmlUrl": "${{ env.HTML_URL }}",
+              "aliases": ${{ env.ALIASES_FINAL }},
+              "members": ${{ env.FINAL_MEMBERS }}
+            }
+          relations: |
+            { "parent": ${{ env.PARENT_TEAM_SLUG != '' && format('"{0}"', env.PARENT_TEAM_SLUG) || 'null' }} }
+          runId: ${{ env.RUN_ID }}
+          status: success
+          logMessage: ${{ env.PORT_MESSAGE }}
+
+      - name: Update manifest
+        run: |
+          mkdir -p teams/manifests
+          members_block=$(echo "$FINAL_MEMBERS" | jq -r '.[] | "- username: \(.username)\n  role: \(.role)"')
+          aliases_block=$(echo "$ALIASES_FINAL" | jq -r '.[] | "- \(.)"')
+          cat > teams/manifests/${TEAM_SLUG}.yaml <<MANIFEST
+apiVersion: v1
+kind: GitHubTeam
+metadata:
+  name: "$TEAM_NAME"
+  slug: "$TEAM_SLUG"
+$(if [ -n "$EXISTING_CREATED_AT" ]; then echo "  createdAt: \"$EXISTING_CREATED_AT\""; fi)
+$(if [ -n "$EXISTING_CREATED_BY" ]; then echo "  createdBy: \"$EXISTING_CREATED_BY\""; fi)
+spec:
+  description: "$DESCRIPTION"
+  privacy: "$PRIVACY"
+  parent:
+    slug: "${PARENT_TEAM_SLUG:-null}"
+  members:
+$(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
+  aliases:
+$(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
+status:
+  id: "${TEAM_ID:-$EXISTING_ID}"
+  htmlUrl: "${HTML_URL:-$EXISTING_HTML_URL}"
+  phase: active
+  lastUpdatedAt: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+MANIFEST
+
+      - name: Commit manifest
+        uses: ./.github/actions/commit-yaml
+        with:
+          path: teams/manifests/${{ env.TEAM_SLUG }}.yaml
+          message: Update team '${{ env.TEAM_SLUG }}' (settings/membership via Port)
+
+      - name: Report failure to Port
+        if: failure()
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          status: failure
+          logMessage: 'Workflow failed'
+
+# Test cases:
+# - Happy path (settings only): change description + privacy.
+# - Set membership: replace entire membership list.
+# - Add members: add 2 members (upgrade one to maintainer).
+# - Remove members: remove 1 member (others untouched).
+# - Parent change: assign a valid parent; then clear parent.
+# - User not in org: skipped with warning; success overall.
+# - No-op: identical inputs → success, zero changes.
+# - Bad parent: fail validation early with clear message.

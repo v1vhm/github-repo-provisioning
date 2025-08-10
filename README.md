@@ -9,6 +9,8 @@ This repository automates the creation and management of GitHub repositories, te
 - `.github/workflows/` - GitHub Actions workflows.
 - `.github/actions/` - Reusable GitHub Actions.
 
+Port catalog updates and run status reporting leverage the official [`port-labs/port-github-action`](https://github.com/port-labs/port-github-action).
+
 Refer to `AGENTS.md` for design decisions and the task list.
 
 ## Secrets and Variables

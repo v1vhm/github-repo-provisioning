@@ -7,6 +7,11 @@ This file provides context and guidelines for AI agents contributing to the "Por
 - **Tech Stack:** GitHub Actions workflows (YAML) orchestrating Terraform and occasional scripts/CLI. Terraform state stored in Azure Blob storage. GitHub App credentials for auth, Port API for catalog updates.
 - **Plan:** refer to the file `PLAN.md` for detailed design information about the repository.
 
+## Available tools
+- **terraform** - this is installed so you can run initialisaiton and validate .tf files
+- **gh** - the GitHub CLI is installed, you can use the PAT token in your secrets to authenticate
+- **actionlint** - this is used to lint github action workflow files - **make sure this is run on every workflow you create or update and resolve all outstanding issues before finishing**
+
 ## Key Design Decisions
 - **Trunk-Based GitOps:** No pull requests; workflows running via Port will commit directly to `main` with changes.
 - **Directory Structure:** One directory per entity type (e.g., `repositories/`, `teams/`, `environments/`). Each contains Terraform config and YAML files for each entity instance.

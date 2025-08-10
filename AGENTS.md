@@ -18,15 +18,15 @@ All workflows reside in `.github/workflows/` and each corresponds to a specific 
 
 * **Inputs and Parsing:** Define a `workflow_dispatch` trigger with a `port_payload` input (JSON string). The first step should parse this JSON (we use `jq` in a run step) to extract all necessary variables and export them to the environment. This typically includes things like `RUN_ID` (Port’s execution id), `BLUEPRINT` (Port blueprint name), resource names, and user-provided parameters. Use `set -euo pipefail` in parsing scripts to catch errors, and use `jq -e` to validate that required fields exist.
 
-* **Authentication:** Use the GitHub App token for any GitHub operations beyond this repository. Each workflow includes a step:
+* **Authentication:** Use the GitHub App token for any GitHub operations beyond this repository. Each workflow should call the reusable composite:
 
   ```yaml
-  - name: Get GitHub App token  
-    uses: actions/create-github-app-token@v1  
-    with: { app-id: ..., private-key: ..., installation-id: ... }  
+  - name: Get GitHub App token
+    uses: ./.github/actions/get-gh-app-token
+    with: { app_id: ..., private_key: ..., installation_id: ... }
   ```
 
-  followed by exporting the token to the `GITHUB_TOKEN` env. This ensures that subsequent `gh` CLI calls or Terraform (which uses the provider with the env var) have the needed org permissions. As mentioned, we plan to wrap this in a reusable action for simplicity; if it’s done, just call that action instead. **Do not use** the default `GITHUB_TOKEN` for org operations, as it lacks the required permissions.
+  The action writes the installation token to both `GITHUB_TOKEN` and `GH_TOKEN` for subsequent steps. **Do not use** the default `GITHUB_TOKEN` for org operations, as it lacks the required permissions.
 
 * **Validation:** Implement pre-condition checks as separate steps. Common validations include: name uniqueness (we provide `scripts/validate-name.sh` and `scripts/validate-team-name.sh` for this purpose), input sanity (e.g., privacy must be "secret" or "closed" for teams, repo visibility must be one of allowed values, etc.), and existence checks (e.g., ensure a repo exists before updating or archiving, ensure a team exists before trying to remove it). Fail fast with clear error messages if validation fails. This prevents wasting time on Terraform calls that will error out or partial changes.
 
@@ -47,8 +47,8 @@ All workflows reside in `.github/workflows/` and each corresponds to a specific 
 This project set up a few reusable pieces to avoid repetition. Be familiar with them and use them where appropriate:
 
 * **`scripts/validate-name.sh` & `validate-team-name.sh`:** Shell scripts to check that a repository or team name meets our org’s conventions and isn’t already taken. They use the GitHub CLI to search for existing names. Use these in create workflows before proceeding to Terraform, to provide quick feedback if a name is invalid or duplicate.
-
-* **Composite Actions:** Currently we have at least one composite action, `commit-yaml`, as described. If you find yourself writing identical steps across multiple workflows, consider making a composite action under `.github/actions/`. Past suggestions include one for Terraform apply (wrapping init/plan/apply) and one for the GitHub App auth. Feel free to create those if it simplifies the code – just document their usage in this guide or in the action’s README. Make sure any composite is flexible enough via inputs to handle the slight variations in different workflows.
+* **`scripts/manifest-utils.py`:** Python helpers to upsert or remove repo↔team relationships in manifests and update `lastUpdatedAt`. Use these functions instead of inlined Python when mutating YAML.
+* **Composite Actions:** Reusable composites live under `.github/actions/`. Use `get-gh-app-token` for GitHub authentication and `commit-yaml` for committing manifest changes. Extract additional composites if you spot repeated patterns across workflows and document them here.
 
 * **Terraform Modules:** The Terraform code is modular. The `repositories/modules/repo` module manages a single GitHub repository (resource `github_repository` plus related resources like `github_team_repository` for initial team and `github_branch_default`). The `teams/modules/team` module manages a single team (`github_team` resource and a set of `github_team_membership` resources for members). When modifying modules, maintain backward compatibility with how workflows pass variables. For instance, the team module expects either `team_name` or `team_slug` (slug is used for deletion cases) and a `members` list. If you extend modules (say to support updating a repo’s topics or enabling/disabling features), add corresponding input variables with sane defaults (so that older calls without those vars still work). Always run `terraform validate` after changes. If adding a new module (e.g., for environments or repository rules), follow the pattern: define variables clearly, use `null` or empty defaults to make inputs optional when possible, and use data sources to look up any existing resource (like we do for `data.github_team.parent` to find a parent team ID). Keep outputs minimal – just what the workflows need (IDs, URLs, etc.). Document new variables in a comment or in the module’s README if complex.
 

@@ -63,14 +63,11 @@ jobs:
 
       - name: Get GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: ./.github/actions/get-gh-app-token
         with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          installation-id: ${{ secrets.GH_APP_INSTALLATION_ID }}
-
-      - name: Export token
-        run: echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> $GITHUB_ENV
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
 
       - name: Validate team slug
         run: ./scripts/validate-team-name.sh "$GH_ORG" "$TEAM_SLUG"

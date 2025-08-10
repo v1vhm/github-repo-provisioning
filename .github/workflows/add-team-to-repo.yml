@@ -1,0 +1,233 @@
+name: Grant team access to repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      port_payload:
+        description: "Port JSON payload"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+env:
+  GH_ORG: ${{ secrets.GH_ORG }}
+
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse payload
+        run: |
+          set -euo pipefail
+          PAYLOAD='${{ inputs.port_payload }}'
+          echo "$PAYLOAD" | jq -e '.runId,.blueprint,.properties.repo_name,.properties.team_slug,.properties.permission' >/dev/null
+          RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)
+          BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)
+          REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)
+          REPO_NAME=$(echo "$PAYLOAD" | jq -r .properties.repo_name | xargs)
+          TEAM_SLUG=$(echo "$PAYLOAD" | jq -r .properties.team_slug | tr '[:upper:]' '[:lower:]' | xargs)
+          PERMISSION=$(echo "$PAYLOAD" | jq -r .properties.permission | xargs)
+          case "$PERMISSION" in pull|triage|push|maintain|admin) ;; *) echo "Invalid permission: $PERMISSION" >&2; exit 1;; esac
+          MIRROR=$(echo "$PAYLOAD" | jq -r '.properties.mirror_on_team_manifest // false')
+          if [[ "$MIRROR" != "true" && "$MIRROR" != "false" ]]; then
+            echo "mirror_on_team_manifest must be boolean" >&2; exit 1
+          fi
+          NOTE=$(echo "$PAYLOAD" | jq -r '.properties.note // ""')
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
+          echo "BLUEPRINT=$BLUEPRINT" >> $GITHUB_ENV
+          echo "REQUESTED_BY=$REQUESTED_BY" >> $GITHUB_ENV
+          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+          echo "TEAM_SLUG=$TEAM_SLUG" >> $GITHUB_ENV
+          echo "PERMISSION=$PERMISSION" >> $GITHUB_ENV
+          echo "MIRROR=$MIRROR" >> $GITHUB_ENV
+          echo "NOTE=$NOTE" >> $GITHUB_ENV
+          echo "NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
+      - name: Get GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          installation-id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+
+      - name: Export token
+        run: echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> $GITHUB_ENV
+
+      - name: Validate repository and team
+        run: |
+          set -euo pipefail
+          repo_resp=$(gh api "repos/${GH_ORG}/${REPO_NAME}" 2>/tmp/repo_err) || { cat /tmp/repo_err >&2; exit 1; }
+          if [ "$(echo "$repo_resp" | jq -r .archived)" = "true" ]; then
+            echo "Repository ${REPO_NAME} is archived" >&2; exit 1; fi
+          gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}" >/dev/null 2>&1 || { echo "Team ${TEAM_SLUG} not found" >&2; exit 1; }
+          current=$(gh api "repos/${GH_ORG}/${REPO_NAME}/teams" -q '.[] | select(.slug=="'${TEAM_SLUG}'") | .permission' || true)
+          echo "CURRENT_PERMISSION=$current" >> $GITHUB_ENV
+          ranks='{ "pull":1, "triage":2, "push":3, "maintain":4, "admin":5 }'
+          req_rank=$(echo "$ranks" | jq -r ".[\"$PERMISSION\"]")
+          cur_rank=$(echo "$ranks" | jq -r ".[\"$current\"] // 0")
+          action="create"
+          if [ -n "$current" ]; then
+            if [ "$cur_rank" -ge "$req_rank" ]; then
+              action="noop"
+            else
+              action="upgrade"
+            fi
+          fi
+          echo "ACTION=$action" >> $GITHUB_ENV
+
+      - name: Apply permission
+        if: env.ACTION != 'noop'
+        run: |
+          for i in 1 2; do
+            if gh api --method PUT "/orgs/${GH_ORG}/teams/${TEAM_SLUG}/repos/${GH_ORG}/${REPO_NAME}" -f permission="${PERMISSION}"; then
+              break
+            elif [ "$i" -eq 2 ]; then
+              exit 1
+            else
+              sleep 5
+            fi
+          done
+
+      - name: Verify permission
+        run: |
+          final=$(gh api "repos/${GH_ORG}/${REPO_NAME}/teams" -q '.[] | select(.slug=="'${TEAM_SLUG}'") | .permission' || true)
+          if [ -z "$final" ]; then
+            echo "Failed to read final permission" >&2; exit 1; fi
+          echo "FINAL_PERMISSION=$final" >> $GITHUB_ENV
+          case "$ACTION" in
+            create) msg="granted ${PERMISSION}";;
+            upgrade) msg="upgraded to ${PERMISSION}";;
+            noop) msg="no-op (current $final)";;
+          esac
+          echo "PORT_MESSAGE=$msg" >> $GITHUB_ENV
+
+      - name: Build commit message
+        run: |
+          msg="Grant team '${TEAM_SLUG}' '${FINAL_PERMISSION}' on repo '${REPO_NAME}' (via Port)"
+          if [ -n "$NOTE" ]; then
+            msg="$msg - $NOTE"
+          fi
+          echo "COMMIT_MESSAGE=$msg" >> $GITHUB_ENV
+
+      - name: Update manifests
+        run: |
+          set -euo pipefail
+          pip install pyyaml >/dev/null
+            python - <<'PY' >> $GITHUB_ENV
+            import os, yaml, json
+            repo=os.environ['REPO_NAME']; slug=os.environ['TEAM_SLUG']; perm=os.environ['FINAL_PERMISSION']; ts=os.environ['NOW']
+            path=f"repositories/manifests/{repo}.yaml"
+            changed=False
+            if os.path.exists(path):
+                with open(path) as f: data=yaml.safe_load(f)
+                teams=data.setdefault('teams',[])
+                found=False
+                for t in teams:
+                    if t.get('slug')==slug:
+                        found=True
+                        if t.get('permission')!=perm:
+                            t['permission']=perm
+                            t['lastUpdatedAt']=ts
+                            changed=True
+                        break
+                if not found:
+                    teams.append({'slug':slug,'permission':perm,'lastUpdatedAt':ts})
+                    changed=True
+            else:
+                data={'apiVersion':'v1','kind':'GitHubRepository','metadata':{'name':repo},
+                      'teams':[{'slug':slug,'permission':perm,'lastUpdatedAt':ts}]}
+                changed=True
+            if changed:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path,'w') as f: yaml.safe_dump(data,f,sort_keys=False)
+            print(f"REPO_MANIFEST={path}")
+            print("TEAM_LIST="+json.dumps([t['slug'] for t in data['teams']]))
+            print(f"REPO_CHANGED={'1' if changed else '0'}")
+            PY
+          if [ "$MIRROR" = "true" ]; then
+            python - <<'PY' >> $GITHUB_ENV
+            import os, yaml
+            team=os.environ['TEAM_SLUG']; repo=os.environ['REPO_NAME']; perm=os.environ['FINAL_PERMISSION']; ts=os.environ['NOW']
+            path=f"teams/manifests/{team}.yaml"
+            changed=False
+            if os.path.exists(path):
+                with open(path) as f: data=yaml.safe_load(f)
+                repos=data.setdefault('repositories',[])
+                found=False
+                for r in repos:
+                    if r.get('name')==repo:
+                        found=True
+                        if r.get('permission')!=perm:
+                            r['permission']=perm
+                            r['lastUpdatedAt']=ts
+                            changed=True
+                        break
+                if not found:
+                    repos.append({'name':repo,'permission':perm,'lastUpdatedAt':ts})
+                    changed=True
+            else:
+                data={'apiVersion':'v1','kind':'GitHubTeam','metadata':{'slug':team},
+                      'repositories':[{'name':repo,'permission':perm,'lastUpdatedAt':ts}]}
+                changed=True
+            if changed:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path,'w') as f: yaml.safe_dump(data,f,sort_keys=False)
+            print(f"TEAM_MANIFEST={path}")
+            print(f"TEAM_CHANGED={'1' if changed else '0'}")
+            PY
+          fi
+
+      - name: Upsert entity to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: UPSERT
+          identifier: ${{ env.REPO_NAME }}
+          title: ${{ env.REPO_NAME }}
+          blueprint: ${{ env.BLUEPRINT }}
+          relations: |
+            { "teams": ${{ env.TEAM_LIST }} }
+          runId: ${{ env.RUN_ID }}
+          status: success
+          logMessage: ${{ env.PORT_MESSAGE }}
+
+      - name: Stage team manifest
+        if: env.MIRROR == 'true' && env.TEAM_CHANGED == '1'
+        run: git add "${{ env.TEAM_MANIFEST }}"
+
+      - name: Commit manifest(s)
+        uses: ./.github/actions/commit-yaml
+        with:
+          path: ${{ env.REPO_MANIFEST }}
+          message: ${{ env.COMMIT_MESSAGE }}
+
+      - name: Report failure to Port
+        if: failure()
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          status: failure
+          logMessage: 'Workflow failed'
+
+# Tests:
+# - Happy path (new grant): team had no access -> now maintain.
+# - Upgrade: team had push -> request admin -> upgraded.
+# - No-op: team already maintain -> request maintain -> success/no-op.
+# - Repo missing: fails fast; Port failure reported.
+# - Team missing: fails fast; Port failure reported.
+# - Archived repo: fails with explicit message.
+# - Mirror disabled/enabled: verify manifests updated accordingly.

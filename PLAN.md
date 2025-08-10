@@ -17,6 +17,7 @@ The repository will be organized for clarity and to logically separate different
   * `/environments/` – contains configuration (placeholder for future, e.g. deployment environments within repos).
 
   Within each directory, **YAML files** will represent individual instances. For example, after creating a team, a file `/teams/<team-name>.yaml` will be added to describe that team (its ID, members, etc.), and similarly `/repositories/<repo-name>.yaml` for a repository’s details. These YAML files serve as the GitOps record of the current state of each resource. They will be created and updated by the workflows (not by humans), providing an audit trail and easy review of all org resources in one place.
+  Repository manifests also track team access under a top-level `teams:` array with entries `slug`, `permission`, and `lastUpdatedAt`. When enabled, team manifests may mirror this relation via a `repositories:` array, keeping repositories as the single source of truth.
 
 * **Terraform Configuration:** Each entity directory will also contain Terraform configuration for managing that entity type. We will define Terraform modules or configurations scoped to one entity at a time. For example, under `/repositories/`, there could be a Terraform module (`repo.tf` or `main.tf` plus variables) that knows how to create or update a GitHub repository (with required settings, team access, etc.). Likewise, `/teams/` will have Terraform code for team creation and membership management. Variables will be used so that the workflows can pass in specifics (like repository name, team name, etc.) when running Terraform. This layout keeps the Terraform logic for each entity type isolated and easier to manage (one directory per entity type as confirmed).
 
@@ -297,7 +298,7 @@ Now, let’s outline each of the initial workflows and how they will function, f
 
 **Steps:**
 
-* *Validation:* Confirm both the repo and team exist. If either is missing, abort. Also check that the team isn’t already a collaborator on that repo with equal or higher permissions – if so, we may consider it a no-op or report that it already has access. If the team exists but with a different permission and the request is for a new permission, this essentially means updating the permission (which this workflow can handle by setting the new permission, overriding the old one). GitHub allows upgrading or downgrading team permissions easily via the same API call.
+* *Validation:* Confirm both the repo and team exist. If either is missing, abort. Check current permission on the repo: if the team already has the requested or a higher permission, treat the run as a no-op. If the team has a lower permission, the workflow upgrades it (never downgrades).
 * *Provision:* For this operation, using Terraform is possible (via `github_team_repository` resource), but it introduces complexity in state (we’d have to decide where to store that state, possibly in the repository’s or team’s state). Considering this is a relatively straightforward API action, we can do it with a direct call:
 
   * Use GitHub CLI or API to add the team to the repo. For example, GitHub REST:
@@ -305,16 +306,7 @@ Now, let’s outline each of the initial workflows and how they will function, f
   * (If we were to use Terraform: we’d run in the repository’s TF context and add a `github_team_repository` resource then apply. This would require the repo’s state and knowledge of team ID. This is doable and ensures the link is recorded in state. However, since we plan to track the relationship in YAML and Port anyway, it might be acceptable not to have Terraform state for the link. We can rely on GitHub as source of truth for actual permission, and our YAML/Port for documentation. For simplicity, we choose the direct API method here.)
   * Confirm success of the API call (check response code 204 for success).
   * **Port Update:** In Port’s model, we should reflect this new relationship. Likely, the “Repository” blueprint has a relation to “Team” (e.g., a repository *has many* teams with access, or specifically an “owner team”). If the added team is an “owner” or primary team, we might update that field; if not, perhaps Port just catalogs it as another relation. We’ll send an update to Port for the repository entity, maybe adding an entry to a list of related teams or updating a property. Similarly, we might update the Team entity to include the repository in its relations. This depends on how Port expects to store it – if Port has the ability to handle many-to-many, we might have to create an “Access” relation blueprint. But as a simpler approach, Port could just keep a reference on the repo to teams. In any case, we will call Port’s API appropriately to register that “Team X now has access to Repo Y”.
-* *YAML Update:* Edit the `repositories/<repo-name>.yaml` file to add the team in an access list. For example, we can include a section:
-
-  ```yaml
-  teams:
-    - name: <team-name>
-      permission: <role>
-  ```
-
-  If the `teams` list already exists in the YAML, just append or update the entry for that team. Also, it might be wise to update the `teams/<team-name>.yaml` to list the repo under a list of `repositories:` that the team has access to. However, maintaining it on both sides can cause double-edit complexity. We could choose to single-source it (perhaps only list teams under repo, and not list repos under team to avoid duplication). But for completeness, a team YAML might also list its repositories. If we do that, this workflow should update both YAML files (repo and team). We must handle the git commit of two files. We can do that in one commit easily (just ensure both changes are staged).
-  We will decide to at least update the repository YAML. Optionally the team YAML too, as it could be useful to see all repos a team has in one place. Let’s assume we update both for full transparency.
+* *YAML Update:* Edit the `repositories/<repo-name>.yaml` file to upsert the team entry under a `teams:` array (`slug`, `permission`, `lastUpdatedAt`). Repository manifests act as the source of truth. When requested, mirror the relationship in `teams/<team-slug>.yaml` by upserting under `repositories:`.
 * *Commit:* Commit the updated YAML file(s). Commit message like “Grant <team-name> access to <repo-name>”.
 * *Report:* Notify Port of success or failure. On success, the Port run could even trigger a refresh of data or simply rely on our upsert.
 

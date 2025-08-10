@@ -1,0 +1,6 @@
+{
+  "ref": "refs/heads/main",
+  "inputs": {
+    "port_payload": "{\"runId\":\"R-789\",\"blueprint\":\"githubRepository\",\"requestedBy\":\"user3\",\"properties\":{\"repo_name\":\"old-repo\",\"note\":\"cleanup\"}}"
+  }
+}

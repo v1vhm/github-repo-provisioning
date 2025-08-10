@@ -1,0 +1,6 @@
+{
+  "ref": "refs/heads/main",
+  "inputs": {
+    "port_payload": "{\"runId\":\"R-202\",\"blueprint\":\"githubTeam\",\"requestedBy\":\"user7\",\"properties\":{\"team_slug\":\"core-team\",\"new_team_name\":\"Core Team\",\"description\":\"Updated core team\",\"privacy\":\"secret\",\"members_mode\":\"add\",\"members\":[{\"username\":\"octocat\",\"role\":\"member\"}],\"parent_team_slug\":\"platform\",\"aliases\":[\"core\",\"engineering\"]}}"
+  }
+}

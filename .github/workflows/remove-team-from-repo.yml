@@ -1,0 +1,215 @@
+name: Revoke team access from repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      port_payload:
+        description: "Port JSON payload"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+env:
+  GH_ORG: ${{ secrets.GH_ORG }}
+
+jobs:
+  remove:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse payload
+        run: |
+          set -euo pipefail
+          PAYLOAD='${{ inputs.port_payload }}'
+          echo "$PAYLOAD" | jq -e '.runId,.blueprint,.properties.repo_name,.properties.team_slug' >/dev/null
+          RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)
+          BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)
+          REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)
+          REPO_NAME=$(echo "$PAYLOAD" | jq -r .properties.repo_name | xargs)
+          TEAM_SLUG=$(echo "$PAYLOAD" | jq -r .properties.team_slug | tr '[:upper:]' '[:lower:]' | xargs)
+          MIRROR=$(echo "$PAYLOAD" | jq -r '.properties.mirror_on_team_manifest // false')
+          if [[ "$MIRROR" != "true" && "$MIRROR" != "false" ]]; then
+            echo "mirror_on_team_manifest must be boolean" >&2; exit 1; fi
+          NOTE=$(echo "$PAYLOAD" | jq -r '.properties.note // ""')
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
+          echo "BLUEPRINT=$BLUEPRINT" >> $GITHUB_ENV
+          echo "REQUESTED_BY=$REQUESTED_BY" >> $GITHUB_ENV
+          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+          echo "TEAM_SLUG=$TEAM_SLUG" >> $GITHUB_ENV
+          echo "MIRROR=$MIRROR" >> $GITHUB_ENV
+          echo "NOTE=$NOTE" >> $GITHUB_ENV
+          echo "NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
+      - name: Get GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          installation-id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+
+      - name: Export token
+        run: echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> $GITHUB_ENV
+
+      - name: Validate repository and team
+        run: |
+          set -euo pipefail
+          repo_resp=$(gh api "repos/${GH_ORG}/${REPO_NAME}" 2>/tmp/repo_err) || { cat /tmp/repo_err >&2; exit 1; }
+          if [ "$(echo "$repo_resp" | jq -r .archived)" = "true" ]; then
+            echo "Repository ${REPO_NAME} is archived" >&2; exit 1; fi
+          gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}" >/dev/null 2>&1 || { echo "Team ${TEAM_SLUG} not found" >&2; exit 1; }
+          if gh api "/orgs/${GH_ORG}/teams/${TEAM_SLUG}/repos/${GH_ORG}/${REPO_NAME}" >/tmp/rel.json 2>/tmp/rel.err; then
+            echo "HAS_ACCESS=true" >> $GITHUB_ENV
+          else
+            if grep -q 'Not Found' /tmp/rel.err; then
+              echo "HAS_ACCESS=false" >> $GITHUB_ENV
+            else
+              cat /tmp/rel.err >&2; exit 1
+            fi
+          fi
+
+      - name: Revoke access
+        if: env.HAS_ACCESS == 'true'
+        run: |
+          set -euo pipefail
+          for i in 1 2; do
+            gh api --method DELETE "/orgs/${GH_ORG}/teams/${TEAM_SLUG}/repos/${GH_ORG}/${REPO_NAME}" && break || true
+            if [ "$i" -eq 2 ]; then exit 1; fi
+            sleep 5
+          done
+          if gh api "/orgs/${GH_ORG}/teams/${TEAM_SLUG}/repos/${GH_ORG}/${REPO_NAME}" >/dev/null 2>&1; then
+            echo "Team still has access after revoke" >&2; exit 1; fi
+          echo "PORT_MESSAGE=removed access" >> $GITHUB_ENV
+
+      - name: Set no-op message
+        if: env.HAS_ACCESS != 'true'
+        run: echo "PORT_MESSAGE=no-op (team had no access)" >> $GITHUB_ENV
+
+      - name: Build commit message
+        run: |
+          msg="Remove team '${TEAM_SLUG}' from repo '${REPO_NAME}' (via Port)"
+          if [ -n "$NOTE" ]; then
+            msg="$msg - $NOTE"
+          fi
+          echo "COMMIT_MESSAGE=$msg" >> $GITHUB_ENV
+
+      - name: Update manifests
+        run: |
+          set -euo pipefail
+          pip install pyyaml >/dev/null
+          python - <<'PY' >> $GITHUB_ENV
+          import os, yaml, json
+          repo=os.environ['REPO_NAME']; slug=os.environ['TEAM_SLUG']; ts=os.environ['NOW']
+          path=f"repositories/manifests/{repo}.yaml"
+          changed=False
+          if os.path.exists(path):
+              with open(path) as f: data=yaml.safe_load(f) or {}
+          else:
+              data={'apiVersion':'v1','kind':'GitHubRepository','metadata':{'name':repo},'teams':[]}
+              changed=True
+          teams=data.setdefault('teams',[])
+          new_teams=[t for t in teams if t.get('slug')!=slug]
+          if new_teams!=teams:
+              changed=True
+          data['teams']=new_teams
+          if changed:
+              status=data.setdefault('status',{})
+              status['lastUpdatedAt']=ts
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              with open(path,'w') as f: yaml.safe_dump(data,f,sort_keys=False)
+          print(f"REPO_MANIFEST={path}")
+          print("TEAM_LIST="+json.dumps([t['slug'] for t in data.get('teams',[])], separators=(',',':')))
+          print(f"REPO_CHANGED={'1' if changed else '0'}")
+          PY
+          if [ "$MIRROR" = "true" ]; then
+            python - <<'PY' >> $GITHUB_ENV
+            import os, yaml, json
+            team=os.environ['TEAM_SLUG']; repo=os.environ['REPO_NAME']
+            path=f"teams/manifests/{team}.yaml"
+            changed=False
+            if os.path.exists(path):
+                with open(path) as f: data=yaml.safe_load(f) or {}
+            else:
+                data={'apiVersion':'v1','kind':'GitHubTeam','metadata':{'slug':team},'repositories':[]}
+            repos=data.setdefault('repositories',[])
+            new_repos=[r for r in repos if r.get('name')!=repo]
+            if new_repos!=repos or not os.path.exists(path):
+                changed=True
+            data['repositories']=new_repos
+            if changed:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path,'w') as f: yaml.safe_dump(data,f,sort_keys=False)
+            print(f"TEAM_MANIFEST={path}")
+            print("TEAM_REPO_LIST="+json.dumps([r['name'] for r in data.get('repositories',[])], separators=(',',':')))
+            print(f"TEAM_CHANGED={'1' if changed else '0'}")
+            PY
+          fi
+
+      - name: Upsert repository in Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: UPSERT
+          identifier: ${{ env.REPO_NAME }}
+          title: ${{ env.REPO_NAME }}
+          blueprint: ${{ env.BLUEPRINT }}
+          relations: |
+            { "teams": ${{ env.TEAM_LIST }} }
+          runId: ${{ env.RUN_ID }}
+          status: success
+          logMessage: ${{ env.PORT_MESSAGE }}
+
+      - name: Upsert team in Port
+        if: env.MIRROR == 'true'
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: UPSERT
+          identifier: ${{ env.TEAM_SLUG }}
+          title: ${{ env.TEAM_SLUG }}
+          blueprint: githubTeam
+          relations: |
+            { "repositories": ${{ env.TEAM_REPO_LIST }} }
+          runId: ${{ env.RUN_ID }}
+          status: success
+          logMessage: ${{ env.PORT_MESSAGE }}
+
+      - name: Stage team manifest
+        if: env.MIRROR == 'true' && env.TEAM_CHANGED == '1'
+        run: git add "${{ env.TEAM_MANIFEST }}"
+
+      - name: Commit manifest(s)
+        uses: ./.github/actions/commit-yaml
+        with:
+          path: ${{ env.REPO_MANIFEST }}
+          message: ${{ env.COMMIT_MESSAGE }}
+
+      - name: Report failure to Port
+        if: failure()
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          status: failure
+          logMessage: 'Workflow failed'
+
+# Tests:
+# - Happy path: team had maintain -> removed; manifests updated.
+# - No-op: team had no access -> success; manifests unchanged or cleaned.
+# - Repo missing: fail fast; Port failure reported.
+# - Team missing: fail fast; Port failure reported.
+# - Archived repo: fail with explicit message.
+# - Mirror disabled: only repo manifest updated.
+# - Mirror enabled: repo and team manifests updated.

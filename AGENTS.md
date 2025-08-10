@@ -35,9 +35,9 @@ Below is the breakdown of tasks to be implemented. Each task should be undertake
 10. ~~Workflow – Remove Team from Repo~~: `.github/workflows/remove-team-from-repo.yml` revokes access, updates YAML manifests, commits, and syncs with Port.
 11. ~~Workflow – Archive Repository~~: `.github/workflows/archive-repository.yml` archives repositories via Terraform, updates manifests, commits, and syncs with Port.
 12. ~~Workflow – Delete Team~~: `.github/workflows/delete-team.yml`. Validate, delete via Terraform or API, update/remove YAML(s), commit, update Port.
-13. **Placeholder – Add Environment**: `.github/workflows/add-environment.yml`. (Design stub for now; actual implementation later.)
-14. **Review and refine**: Review all workflows, modules, and manifests for consistency, applying improvements and lessons learned from later tasks to earlier implementations.
-15. **Reusable Components**: Refactor common code. E.g., create a composite action for committing YAML (stage, commit, push), one for Port API calls (to avoid rewriting curl logic), and one for Terraform apply steps. Update workflows to use these.
+13. **Review and refine**: Review all workflows, modules, and manifests for consistency, applying improvements and lessons learned from later tasks to earlier implementations.
+14. **Reusable Components**: Refactor common code. E.g., create a composite action for committing YAML (stage, commit, push), one for Port API calls (to avoid rewriting curl logic), and one for Terraform apply steps. Update workflows to use these.
+15. **Placeholder – Add Environment**: `.github/workflows/add-environment.yml`. (Design stub for now; actual implementation later.)
 16. **Testing & Validation**: Write example dummy Port payloads and test workflows locally (using `act` or in a test repo) to ensure logic works. Adjust as needed.
 17. **Documentation**: Update README.md with instructions on how Port triggers the workflows, what each workflow does, and how to configure the GitHub App and Azure backend.
 

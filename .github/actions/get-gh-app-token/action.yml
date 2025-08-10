@@ -1,0 +1,29 @@
+name: Get GitHub App token
+description: Generate GitHub App installation token and export to environment
+inputs:
+  app_id:
+    description: GitHub App ID
+    required: true
+  private_key:
+    description: GitHub App private key
+    required: true
+  installation_id:
+    description: GitHub App installation ID
+    required: true
+outputs:
+  token:
+    description: Installation access token
+    value: ${{ steps.token.outputs.token }}
+runs:
+  using: composite
+  steps:
+    - id: token
+      uses: actions/create-github-app-token@v1
+      with:
+        app-id: ${{ inputs.app_id }}
+        private-key: ${{ inputs.private_key }}
+        installation-id: ${{ inputs.installation_id }}
+    - shell: bash
+      run: |
+        echo "GITHUB_TOKEN=${{ steps.token.outputs.token }}" >> $GITHUB_ENV
+        echo "GH_TOKEN=${{ steps.token.outputs.token }}" >> $GITHUB_ENV

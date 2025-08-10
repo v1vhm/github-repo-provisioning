@@ -54,14 +54,11 @@ jobs:
 
       - name: Get GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: ./.github/actions/get-gh-app-token
         with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          installation-id: ${{ secrets.GH_APP_INSTALLATION_ID }}
-
-      - name: Export token
-        run: echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> $GITHUB_ENV
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
 
       - name: Validate repository and team
         run: |
@@ -123,69 +120,29 @@ jobs:
         run: |
           set -euo pipefail
           pip install pyyaml >/dev/null
-            python - <<'PY' >> $GITHUB_ENV
-            import os, yaml, json
-            repo=os.environ['REPO_NAME']; slug=os.environ['TEAM_SLUG']; perm=os.environ['FINAL_PERMISSION']; ts=os.environ['NOW']
-            path=f"repositories/manifests/{repo}.yaml"
-            changed=False
-            if os.path.exists(path):
-                with open(path) as f: data=yaml.safe_load(f)
-                teams=data.setdefault('teams',[])
-                found=False
-                for t in teams:
-                    if t.get('slug')==slug:
-                        found=True
-                        if t.get('permission')!=perm:
-                            t['permission']=perm
-                            t['lastUpdatedAt']=ts
-                            changed=True
-                        break
-                if not found:
-                    teams.append({'slug':slug,'permission':perm,'lastUpdatedAt':ts})
-                    changed=True
-            else:
-                data={'apiVersion':'v1','kind':'GitHubRepository','metadata':{'name':repo},
-                      'teams':[{'slug':slug,'permission':perm,'lastUpdatedAt':ts}]}
-                changed=True
-            if changed:
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path,'w') as f: yaml.safe_dump(data,f,sort_keys=False)
-            print(f"REPO_MANIFEST={path}")
-            print("TEAM_LIST="+json.dumps([t['slug'] for t in data['teams']]))
-            print(f"REPO_CHANGED={'1' if changed else '0'}")
-            PY
-          if [ "$MIRROR" = "true" ]; then
-            python - <<'PY' >> $GITHUB_ENV
-            import os, yaml
-            team=os.environ['TEAM_SLUG']; repo=os.environ['REPO_NAME']; perm=os.environ['FINAL_PERMISSION']; ts=os.environ['NOW']
-            path=f"teams/manifests/{team}.yaml"
-            changed=False
-            if os.path.exists(path):
-                with open(path) as f: data=yaml.safe_load(f)
-                repos=data.setdefault('repositories',[])
-                found=False
-                for r in repos:
-                    if r.get('name')==repo:
-                        found=True
-                        if r.get('permission')!=perm:
-                            r['permission']=perm
-                            r['lastUpdatedAt']=ts
-                            changed=True
-                        break
-                if not found:
-                    repos.append({'name':repo,'permission':perm,'lastUpdatedAt':ts})
-                    changed=True
-            else:
-                data={'apiVersion':'v1','kind':'GitHubTeam','metadata':{'slug':team},
-                      'repositories':[{'name':repo,'permission':perm,'lastUpdatedAt':ts}]}
-                changed=True
-            if changed:
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path,'w') as f: yaml.safe_dump(data,f,sort_keys=False)
-            print(f"TEAM_MANIFEST={path}")
-            print(f"TEAM_CHANGED={'1' if changed else '0'}")
-            PY
-          fi
+          python - <<'PY' >> $GITHUB_ENV
+          import os, json, yaml, importlib.util
+          spec = importlib.util.spec_from_file_location('mu', 'scripts/manifest-utils.py')
+          mu = importlib.util.module_from_spec(spec); spec.loader.exec_module(mu)
+          repo=os.environ['REPO_NAME']; slug=os.environ['TEAM_SLUG']; perm=os.environ['FINAL_PERMISSION']; ts=os.environ['NOW']
+          repo_path=f"repositories/manifests/{repo}.yaml"
+          repo_changed = mu.upsert_repo_team(repo_path, slug, perm, ts)
+          if repo_changed:
+              mu.touch_last_updated(repo_path, ts)
+          with open(repo_path) as f: data=yaml.safe_load(f) or {}
+          print(f"REPO_MANIFEST={repo_path}")
+          print("TEAM_LIST="+json.dumps([t['slug'] for t in data.get('teams', [])], separators=(',',':')))
+          print(f"REPO_CHANGED={'1' if repo_changed else '0'}")
+          if os.environ.get('MIRROR') == 'true':
+              team=os.environ['TEAM_SLUG']; repo=os.environ['REPO_NAME']
+              team_path=f"teams/manifests/{team}.yaml"
+              team_changed = mu.upsert_team_repo(team_path, repo, perm, ts)
+              if team_changed:
+                  mu.touch_last_updated(team_path, ts)
+              with open(team_path) as f: tdata=yaml.safe_load(f) or {}
+              print(f"TEAM_MANIFEST={team_path}")
+              print(f"TEAM_CHANGED={'1' if team_changed else '0'}")
+          PY
 
       - name: Upsert entity to Port
         uses: port-labs/port-github-action@v1

@@ -134,7 +134,7 @@ jobs:
           echo "MANIFEST=teams/manifests/${TEAM_SLUG}.yaml" >> $GITHUB_ENV
 
       - name: Azure login
-        uses: azure/login@v1
+        uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -164,19 +164,19 @@ jobs:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          run: |
-            cat > members.auto.tfvars.json <<EOF
-            { "members": $TF_MEMBERS }
-            EOF
-            terraform apply -auto-approve \
+        run: |
+          cat > members.auto.tfvars.json <<EOF
+          { "members": $TF_MEMBERS }
+          EOF
+          terraform apply -auto-approve \
             -var "org=$GH_ORG" \
             -var "team_name=$TEAM_NAME" \
             -var "privacy=$PRIVACY" \
             -var "description=$DESCRIPTION" \
             -var "parent_team_slug=$PARENT_TEAM_SLUG"
-            terraform output -json > tf.json
-            echo "TEAM_ID=$(jq -r .team_id.value tf.json)" >> $GITHUB_ENV
-            echo "HTML_URL=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
+          terraform output -json > tf.json
+          echo "TEAM_ID=$(jq -r .team_id.value tf.json)" >> $GITHUB_ENV
+          echo "HTML_URL=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
 
       - name: Upsert entity to Port
         uses: port-labs/port-action@v1

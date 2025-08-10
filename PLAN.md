@@ -409,19 +409,6 @@ We also consider if upon archiving we want to lock down any teams or settings �
 
 **Notes:** Because this workflow can be complex, we marked it as a placeholder to be fleshed out later. It will involve multiple GitHub API calls and careful structuring of YAML. For the current scope, we won’t implement fully, but it’s in the plan so the architecture accounts for it. The AI-generated code tasks for this can be deferred until the simpler ones are done.
 
-## AGENTS.md – AI Collaboration Guide
-
-We will maintain an `AGENTS.md` file at the root to facilitate collaboration between sequential AI tasks. This file serves as a shared memory and guidelines for any AI agent contributing to the repository. Below is the proposed content for `AGENTS.md`:
-
-```markdown
-# AI Development Agents Context
-
-This file provides context and guidelines for AI agents contributing to the "Port GitHub Automation" repository. It describes the project, decisions made so far, and the tasks to be completed. **After completing any task, update this file to reflect changes or new decisions.**
-
-## Project Overview
-- **Purpose:** Automate the creation and management of GitHub repositories and teams, triggered by Port. All changes are recorded in this repo as YAML files (GitOps style).
-- **Tech Stack:** GitHub Actions workflows (YAML) orchestrating Terraform and occasional scripts/CLI. Terraform state stored in Azure Blob storage. GitHub App credentials for auth, Port API for catalog updates.
-
 ## Key Design Decisions
 - **Trunk-Based GitOps:** No pull requests; workflows running via Port will commit directly to `main` with changes.
 - **Directory Structure:** One directory per entity type (e.g., `repositories/`, `teams/`, `environments/`). Each contains Terraform config and YAML files for each entity instance.

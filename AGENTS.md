@@ -32,7 +32,7 @@ Below is the breakdown of tasks to be implemented. Each task should be undertake
 7. ~~Workflow – Update Team~~: `.github/workflows/update-team.yml` updates existing teams. Handles settings via Terraform and membership adjustments with modes (`set` via Terraform; `add`/`remove` via API), commits manifests, and upserts to Port.
 8. ~~Workflow – Update Repository~~: Workflow `.github/workflows/update-repository.yml` updates repository settings, commits manifests, and syncs with Port.
 9. ~~Workflow – Add Team to Repo~~: `.github/workflows/add-team-to-repo.yml` grants or upgrades team access via GitHub API, updates repository and optional team manifests, commits, and syncs with Port.
-10. **Workflow – Remove Team from Repo**: `.github/workflows/remove-team-from-repo.yml`. Similar to above, revoke access, update YAML(s), commit, update Port.
+10. ~~Workflow – Remove Team from Repo~~: `.github/workflows/remove-team-from-repo.yml` revokes access, updates YAML manifests, commits, and syncs with Port.
 11. **Workflow – Archive Repository**: `.github/workflows/archive-repository.yml`. Validate, call Terraform or API to archive, update YAML, commit, update Port.
 12. **Workflow – Delete Team**: `.github/workflows/delete-team.yml`. Validate, delete via Terraform or API, update/remove YAML(s), commit, update Port.
 13. **Placeholder – Add Environment**: `.github/workflows/add-environment.yml`. (Design stub for now; actual implementation later.)
@@ -58,3 +58,8 @@ Below is the breakdown of tasks to be implemented. Each task should be undertake
 - Fixed `create-team` workflow actionlint issues by upgrading `azure/login` to v2 and correcting Terraform step indentation.
 - Add-team-to-repo workflow implemented; uses GitHub API, never downgrades permissions (upgrade-only).
 - Repository manifests are the source of truth for team access; `mirror_on_team_manifest` optionally updates team manifests for dual-sourcing.
+
+- Remove-team-from-repo workflow added; revokes team access via GitHub API, updates manifests, and syncs with Port.
+- Idempotent: succeeds with no-op when the team has no repository access.
+- Guardrail: fails early if the repository is archived.
+- Improvement: centralize Port blueprint names to avoid hardcoding across workflows.

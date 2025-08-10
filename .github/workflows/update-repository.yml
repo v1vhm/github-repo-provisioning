@@ -1,0 +1,320 @@
+name: Update GitHub repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      port_payload:
+        description: "Port JSON payload"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  actions: read
+
+env:
+  GH_ORG: ${{ secrets.GH_ORG }}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse payload
+        run: |
+          set -euo pipefail
+          PAYLOAD='${{ inputs.port_payload }}'
+          echo "$PAYLOAD" | jq -e '.runId,.blueprint,.properties.repo_name' >/dev/null
+          echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)" >> $GITHUB_ENV
+          echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)" >> $GITHUB_ENV
+          echo "REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)" >> $GITHUB_ENV
+          REPO_NAME=$(echo "$PAYLOAD" | jq -r .properties.repo_name | xargs)
+          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+          DESC_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.description // ""')
+          echo "DESCRIPTION_PAYLOAD=$DESC_PAYLOAD" >> $GITHUB_ENV
+          VIS_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.visibility // ""' | xargs)
+          if [ -n "$VIS_PAYLOAD" ] && [[ "$VIS_PAYLOAD" != "private" && "$VIS_PAYLOAD" != "internal" && "$VIS_PAYLOAD" != "public" ]]; then
+            echo "Invalid visibility: $VIS_PAYLOAD" >&2; exit 1; fi
+          echo "VISIBILITY_PAYLOAD=$VIS_PAYLOAD" >> $GITHUB_ENV
+          HOMEPAGE_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.homepage_url // ""' | xargs)
+          echo "HOMEPAGE_URL_PAYLOAD=$HOMEPAGE_PAYLOAD" >> $GITHUB_ENV
+          TOPICS_PAYLOAD=$(echo "$PAYLOAD" | jq -c '.properties.topics // empty')
+          if [ -n "$TOPICS_PAYLOAD" ]; then
+            echo "$TOPICS_PAYLOAD" | jq -e 'all(type=="string")' >/dev/null || { echo "topics must be array of strings" >&2; exit 1; }
+          fi
+          echo "TOPICS_PAYLOAD=$TOPICS_PAYLOAD" >> $GITHUB_ENV
+          DBM_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.delete_branch_on_merge // ""')
+          echo "DELETE_BRANCH_ON_MERGE_PAYLOAD=$DBM_PAYLOAD" >> $GITHUB_ENV
+          ISSUES_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.enable_issues // ""')
+          echo "ENABLE_ISSUES_PAYLOAD=$ISSUES_PAYLOAD" >> $GITHUB_ENV
+          WIKI_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.enable_wiki // ""')
+          echo "ENABLE_WIKI_PAYLOAD=$WIKI_PAYLOAD" >> $GITHUB_ENV
+          DB_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.default_branch // ""' | xargs)
+          echo "DEFAULT_BRANCH_PAYLOAD=$DB_PAYLOAD" >> $GITHUB_ENV
+          CUSTOM_PAYLOAD=$(echo "$PAYLOAD" | jq -c '.properties.custom_properties // {}')
+          echo "CUSTOM_PAYLOAD=$CUSTOM_PAYLOAD" >> $GITHUB_ENV
+
+      - name: Load existing manifest
+        run: |
+          set -e
+          MANIFEST_PATH="repositories/manifests/${REPO_NAME}.yaml"
+          if [ ! -f "$MANIFEST_PATH" ]; then
+            echo "Manifest $MANIFEST_PATH not found" >&2; exit 1; fi
+          pip install pyyaml >/dev/null
+          python - <<'PY' >> $GITHUB_ENV
+import os, json, yaml
+p=os.environ['MANIFEST_PATH']
+with open(p) as f:
+  data=yaml.safe_load(f)
+meta=data.get('metadata',{})
+spec=data.get('spec',{})
+settings=spec.get('settings',{})
+status=data.get('status',{})
+print(f"EXISTING_DESCRIPTION={spec.get('description','')}")
+print(f"EXISTING_VISIBILITY={spec.get('visibility','')}")
+print(f"EXISTING_HOMEPAGE_URL={spec.get('homepageUrl','') or ''}")
+import json as j
+print(f"EXISTING_TOPICS={j.dumps(spec.get('topics',[]))}")
+print(f"EXISTING_DELETE_BRANCH_ON_MERGE={str(settings.get('deleteBranchOnMerge', True)).lower()}")
+print(f"EXISTING_ENABLE_ISSUES={str(settings.get('enableIssues', True)).lower()}")
+print(f"EXISTING_ENABLE_WIKI={str(settings.get('enableWiki', False)).lower()}")
+print(f"EXISTING_DEFAULT_BRANCH={settings.get('defaultBranch','')}")
+print(f"EXISTING_CUSTOM={j.dumps(spec.get('custom', {}))}")
+print(f"EXISTING_ID={status.get('id','')}")
+print(f"EXISTING_HTML_URL={status.get('htmlUrl','')}")
+print(f"EXISTING_SSH_URL={status.get('sshUrl','')}")
+print(f"EXISTING_CREATED_AT={meta.get('createdAt','')}")
+print(f"EXISTING_CREATED_BY={meta.get('createdBy','')}")
+PY
+
+      - name: Compute desired state
+        run: |
+          set -e
+          DESCRIPTION="$DESCRIPTION_PAYLOAD"
+          [ -z "$DESCRIPTION" ] && DESCRIPTION="$EXISTING_DESCRIPTION"
+          echo "DESCRIPTION=$DESCRIPTION" >> $GITHUB_ENV
+          VISIBILITY="$VISIBILITY_PAYLOAD"
+          [ -z "$VISIBILITY" ] && VISIBILITY="$EXISTING_VISIBILITY"
+          echo "VISIBILITY=$VISIBILITY" >> $GITHUB_ENV
+          HOMEPAGE_URL="$HOMEPAGE_URL_PAYLOAD"
+          [ -z "$HOMEPAGE_URL" ] && HOMEPAGE_URL="$EXISTING_HOMEPAGE_URL"
+          echo "HOMEPAGE_URL=$HOMEPAGE_URL" >> $GITHUB_ENV
+          if [ -n "$HOMEPAGE_URL" ]; then
+            echo "HOMEPAGE_URL_JSON=\"$HOMEPAGE_URL\"" >> $GITHUB_ENV
+          else
+            echo "HOMEPAGE_URL_JSON=null" >> $GITHUB_ENV
+          fi
+          if [ -n "$TOPICS_PAYLOAD" ]; then
+            TOPICS=$(echo "$TOPICS_PAYLOAD" | jq -c 'map(ascii_downcase)|unique')
+          else
+            TOPICS="$EXISTING_TOPICS"
+          fi
+          echo "TOPICS_FINAL=$TOPICS" >> $GITHUB_ENV
+          DBM="$DELETE_BRANCH_ON_MERGE_PAYLOAD"
+          [ -z "$DBM" ] && DBM="$EXISTING_DELETE_BRANCH_ON_MERGE"
+          echo "DELETE_BRANCH_ON_MERGE=$DBM" >> $GITHUB_ENV
+          ISS="$ENABLE_ISSUES_PAYLOAD"
+          [ -z "$ISS" ] && ISS="$EXISTING_ENABLE_ISSUES"
+          echo "ENABLE_ISSUES=$ISS" >> $GITHUB_ENV
+          WIKI="$ENABLE_WIKI_PAYLOAD"
+          [ -z "$WIKI" ] && WIKI="$EXISTING_ENABLE_WIKI"
+          echo "ENABLE_WIKI=$WIKI" >> $GITHUB_ENV
+          DB="$DEFAULT_BRANCH_PAYLOAD"
+          [ -z "$DB" ] && DB="$EXISTING_DEFAULT_BRANCH"
+          echo "DEFAULT_BRANCH=$DB" >> $GITHUB_ENV
+          if [ -n "$DB" ]; then
+            echo "DEFAULT_BRANCH_JSON=\"$DB\"" >> $GITHUB_ENV
+          else
+            echo "DEFAULT_BRANCH_JSON=null" >> $GITHUB_ENV
+          fi
+          CUSTOM=$(jq -c -n --argjson existing "$EXISTING_CUSTOM" --argjson payload "$CUSTOM_PAYLOAD" '$existing + $payload')
+          echo "CUSTOM_FINAL=$CUSTOM" >> $GITHUB_ENV
+
+      - name: Get GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          installation-id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+
+      - name: Export token
+        run: echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> $GITHUB_ENV
+
+      - name: Ensure repository and branch exist
+        run: |
+          set -e
+          gh api repos/${GH_ORG}/${REPO_NAME} >/dev/null
+          if [ -n "${DEFAULT_BRANCH}" ]; then
+            gh api repos/${GH_ORG}/${REPO_NAME}/branches/${DEFAULT_BRANCH} >/dev/null
+          fi
+
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform init
+        working-directory: repositories/modules/repo
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ secrets.AZURE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ secrets.AZURE_STORAGE_CONTAINER }}" \
+            -backend-config="key=repos/${REPO_NAME}.tfstate" \
+            -backend-config="use_azuread_auth=true"
+
+      - name: Terraform plan and apply
+        working-directory: repositories/modules/repo
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -e
+          cat > payload.auto.tfvars.json <<VARS
+{
+  "org": "$GH_ORG",
+  "repo_name": "$REPO_NAME",
+  "description": "$DESCRIPTION",
+  "visibility": "$VISIBILITY",
+  "homepage_url": $HOMEPAGE_URL_JSON,
+  "topics": $TOPICS_FINAL,
+  "delete_branch_on_merge": $DELETE_BRANCH_ON_MERGE,
+  "enable_issues": $ENABLE_ISSUES,
+  "enable_wiki": $ENABLE_WIKI,
+  "default_branch": $DEFAULT_BRANCH_JSON
+}
+VARS
+          terraform plan -out=tfplan -detailed-exitcode >/tmp/plan.log && code=$? || code=$?
+          if [ $code -eq 2 ]; then
+            echo "TF_HAS_CHANGES=1" >> $GITHUB_ENV
+          elif [ $code -eq 0 ]; then
+            echo "TF_HAS_CHANGES=0" >> $GITHUB_ENV
+          else
+            cat /tmp/plan.log
+            exit $code
+          fi
+          terraform apply -auto-approve tfplan
+          terraform output -json > tf.json
+          echo "REPO_ID=$(jq -r .repo_id.value tf.json)" >> $GITHUB_ENV
+          echo "HTML_URL=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
+          echo "SSH_URL=$(jq -r .ssh_url.value tf.json)" >> $GITHUB_ENV
+          echo "DEFAULT_BRANCH=$(jq -r .default_branch.value tf.json)" >> $GITHUB_ENV
+
+      - name: Compute change message
+        run: |
+          total=$TF_HAS_CHANGES
+          echo "CHANGES=$total" >> $GITHUB_ENV
+          if [ "$total" -eq 0 ]; then
+            echo "PORT_MESSAGE=no-op (already up to date)" >> $GITHUB_ENV
+          else
+            echo "PORT_MESSAGE=repository updated" >> $GITHUB_ENV
+          fi
+
+      - name: Upsert entity to Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          identifier: ${{ env.REPO_NAME }}
+          title: ${{ env.REPO_NAME }}
+          blueprint: ${{ env.BLUEPRINT }}
+          properties: |
+            {
+              "description": "${{ env.DESCRIPTION }}",
+              "htmlUrl": "${{ env.HTML_URL }}",
+              "sshUrl": "${{ env.SSH_URL }}",
+              "visibility": "${{ env.VISIBILITY }}",
+              "homepageUrl": ${{ env.HOMEPAGE_URL_JSON }},
+              "topics": ${{ env.TOPICS_FINAL }},
+              "custom": ${{ env.CUSTOM_FINAL }}
+            }
+          runId: ${{ env.RUN_ID }}
+          status: success
+          logMessage: ${{ env.PORT_MESSAGE }}
+
+      - name: Update manifest
+        run: |
+          set -e
+          pip install pyyaml >/dev/null
+          python - <<'PY' >> $GITHUB_ENV
+import os, yaml, json, datetime
+repo=os.environ['REPO_NAME']
+path=f"repositories/manifests/{repo}.yaml"
+if os.path.exists(path):
+  with open(path) as f:
+    data=yaml.safe_load(f)
+else:
+  data={'apiVersion':'v1','kind':'GitHubRepository','metadata':{'name':repo}}
+meta=data.setdefault('metadata',{})
+if os.getenv('EXISTING_CREATED_AT'):
+  meta['createdAt']=os.environ['EXISTING_CREATED_AT']
+if os.getenv('EXISTING_CREATED_BY'):
+  meta['createdBy']=os.environ['EXISTING_CREATED_BY']
+spec=data.setdefault('spec',{})
+spec['description']=os.environ['DESCRIPTION']
+spec['visibility']=os.environ['VISIBILITY']
+spec['homepageUrl']=os.environ.get('HOMEPAGE_URL') or None
+spec['topics']=json.loads(os.environ['TOPICS_FINAL'])
+settings=spec.setdefault('settings',{})
+settings['deleteBranchOnMerge']=os.environ['DELETE_BRANCH_ON_MERGE'].lower()=='true'
+settings['enableIssues']=os.environ['ENABLE_ISSUES'].lower()=='true'
+settings['enableWiki']=os.environ['ENABLE_WIKI'].lower()=='true'
+branch=os.environ.get('DEFAULT_BRANCH')
+settings['defaultBranch']=branch if branch else None
+custom=json.loads(os.environ['CUSTOM_FINAL'])
+if custom:
+  spec['custom']=custom
+elif 'custom' in spec:
+  del spec['custom']
+status=data.setdefault('status',{})
+status['id']=os.environ.get('REPO_ID') or os.environ.get('EXISTING_ID')
+status['htmlUrl']=os.environ.get('HTML_URL') or os.environ.get('EXISTING_HTML_URL')
+status['sshUrl']=os.environ.get('SSH_URL') or os.environ.get('EXISTING_SSH_URL')
+status['phase']='active'
+status['lastUpdatedAt']=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+os.makedirs('repositories/manifests', exist_ok=True)
+with open(path,'w') as f:
+  yaml.safe_dump(data,f,sort_keys=False)
+print(f"MANIFEST={path}")
+PY
+
+      - name: Commit manifest
+        uses: ./.github/actions/commit-yaml
+        with:
+          path: ${{ env.MANIFEST }}
+          message: Update repository '${{ env.REPO_NAME }}' (automated via Port)
+
+      - name: Report failure to Port
+        if: failure()
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          status: failure
+          logMessage: 'Workflow failed'
+
+# Tests:
+# - Happy path: update description and topics.
+# - Visibility change: private -> internal/public.
+# - Default branch: set to existing main.
+# - No-op: identical payload -> success, no changes.
+# - Bad default branch: fails validation; Port failure reported.

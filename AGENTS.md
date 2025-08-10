@@ -25,7 +25,7 @@ Below is the breakdown of tasks to be implemented. Each task should be undertake
 5. ~~Workflow – Create Repository~~: Workflow `create-repository.yml` provisions repos via Terraform and cookiecutter, commits manifests, and upserts to Port using composite actions. A validation script checks naming and uniqueness.
 6. ~~Workflow – Create Team~~: Workflow `.github/workflows/create-team.yml` creates teams via Terraform, commits manifests, and syncs with Port.
 7. ~~Workflow – Update Team~~: `.github/workflows/update-team.yml` updates existing teams. Handles settings via Terraform and membership adjustments with modes (`set` via Terraform; `add`/`remove` via API), commits manifests, and upserts to Port.
-8. **Workflow – Update Repository**: Develop `.github/workflows/update-repository.yml`. Parse payload (repo name, properties to change), validate, Terraform apply changes, update YAML, commit, update Port.
+8. ~~Workflow – Update Repository~~: Workflow `.github/workflows/update-repository.yml` updates repository settings, commits manifests, and syncs with Port.
 9. **Workflow – Add Team to Repo**: `.github/workflows/add-team-to-repo.yml`. Validate inputs, use GitHub CLI or Terraform to grant access, update YAML(s), commit, update Port.
 10. **Workflow – Remove Team from Repo**: `.github/workflows/remove-team-from-repo.yml`. Similar to above, revoke access, update YAML(s), commit, update Port.
 11. **Workflow – Archive Repository**: `.github/workflows/archive-repository.yml`. Validate, call Terraform or API to archive, update YAML, commit, update Port.
@@ -38,6 +38,8 @@ Below is the breakdown of tasks to be implemented. Each task should be undertake
 *Note:* After completing each task, **update this list**, mark tasks as done (e.g., ~~task~~ or a checkmark), and add any new insights or required changes to the design above. Keep this file up-to-date so that the next agent has the latest context.
 
 ### Notes
+ - Repository update workflow added; Terraform module expanded for repo settings and default branch management.
+ - No provider gaps identified; settings managed via Terraform.
  - Team creation workflow and Terraform module added; includes `scripts/validate-team-name.sh`. Non-org members are skipped.
  - Composite action `commit-yaml` introduced; Port interactions now use `port-labs/port-github-action`.
  - Terraform state backend authenticates to Azure via OIDC; configure `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_STORAGE_ACCOUNT`, and `AZURE_STORAGE_CONTAINER` secrets.

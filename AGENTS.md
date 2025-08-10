@@ -1,71 +1,89 @@
-# AI Development Agents Context
+**Welcome, contributor!** This guide provides context and conventions for AI agents or developers contributing to the **Port GitHub Automation** repository. It summarizes the project’s purpose, key decisions, and the established patterns you must follow when extending or modifying the repository’s code.
 
-This file provides context and guidelines for AI agents contributing to the "Port GitHub Automation" repository. It describes the project, decisions made so far, and the tasks to be completed. **After completing any task, update this file to reflect changes or new decisions.**
+### Project Overview
 
-## Project Overview
-- **Purpose:** Automate the creation and management of GitHub repositories and teams, triggered by Port. All changes are recorded in this repo as YAML files (GitOps style).
-- **Tech Stack:** GitHub Actions workflows (YAML) orchestrating Terraform and occasional scripts/CLI. Terraform state stored in Azure Blob storage. GitHub App credentials for auth, Port API for catalog updates.
-- **Plan:** refer to the file `PLAN.md` for detailed design information about the repository.
+* **Goal:** Enable automated, GitOps-style management of GitHub organizational resources (repositories, teams, etc.) triggered by events from **Port**. Every change initiated by Port is executed via GitHub Actions and recorded as a YAML manifest in this repo. Port acts as the frontend where users request changes (like “Create a repo” or “Add a team member”), and this repository’s workflows are the backend that carry out those requests and report the results.
+* **Tech Stack:** GitHub Actions for orchestration; **Terraform** (with the official GitHub provider) for resource creation/update/destroy where possible; direct GitHub API/CLI for gaps (e.g., adjusting team permissions); Python/Shell scripts for glue logic. State is stored remotely (Azure Blob) for Terraform. **Port’s official GitHub Action** is used for catalog updates.
+* **GitOps and Trunk-Based Development:** There are no manual changes to GitHub org outside of this system – this repo is the source of truth. All workflows commit changes directly to the `main` branch (acting as a bot user) rather than using pull requests. Every commit corresponds to an action taken (e.g., “Add repository X” or “Remove team Y”), providing an audit log. As a contributor, any changes you make to workflows or modules should maintain compatibility with this direct-to-main, automated operation mode.
 
-## Available tools
-- **terraform** - this is installed so you can run initialisaiton and validate .tf files
-- **gh** - the GitHub CLI is installed, you can use the PAT token in your secrets to authenticate
-- **actionlint** - this is used to lint github action workflow files - **make sure this is run on every workflow you create or update and resolve all outstanding issues before finishing**
+### Repository Structure & State
 
-## Key Design Decisions
-- **Trunk-Based GitOps:** No pull requests; workflows running via Port will commit directly to `main` with changes.
-- **Directory Structure:** One directory per entity type (e.g., `repositories/`, `teams/`, `environments/`). Each contains Terraform config and YAML files for each entity instance.
-- **Workflows:** Located in `.github/workflows/`, one per action (create repo, create team, update team, etc.). They follow the 6-step pattern (validate, YAML, provision, update YAML, commit, report).
-- **Terraform Usage:** Use Terraform GitHub provider for resources when possible (repos, teams, memberships, etc.). Use GitHub CLI or API for features not in provider (e.g., repository templates via cookiecutter, environment configs).
-- **State Management:** Remote backend on Azure; state files segmented (e.g., one per repo or team) to keep them small and avoid conflicts. Use naming convention in backend config (like `repos/<name>.tfstate`).
-- **Port Integration:** Port client ID/secret used to call Port’s API to create/update entities (Bluepint entries) and report action status. Each workflow parses a `port_payload` JSON input from Port to get context and user inputs.
+* **Directories per Resource:** The repository is organized into directories by resource type (currently `repositories/`, `teams/`, and a placeholder `environments/`). Each contains Terraform code (under `modules/`) and a `manifests/` subdirectory for YAML state files of that type. For example, `repositories/modules/repo` holds the Terraform module for repos, and `repositories/manifests/` holds YAML files for each repo instance. This separation means adding a new resource type (say, pipelines or projects) would involve creating a similar directory structure.
+* **Terraform State Management:** We use a remote backend (Azure) with one state file **per resource instance**. State files are keyed by resource name/slug (e.g., `teams/<team-slug>.tfstate`). This granularity prevents different workflows from locking the same state. When writing Terraform code, design it to manage exactly one entity per directory run, and configure the backend key accordingly. Azure OIDC is used for auth (no plaintext cloud credentials). Ensure any new Terraform module follows the same pattern (use the provided Azure storage container and the `ARM_*` OIDC environment variables set in workflows).
+* **Manifests as Source of Truth:** YAML manifest files under `*/manifests/` represent the intended and actual state of each resource. They are updated by workflows, not humans. These files typically have `spec` (desired config) and `status` (outputs and current status) sections. For example, a repo manifest’s spec includes visibility, description, etc., and its status includes the repo ID, URLs, and whether it’s archived. When writing workflows or scripts, **always update the manifests** to reflect changes. Conversely, workflows often read these manifests to get the current state (e.g., the current description or members list) before deciding what to change. Maintaining this two-way sync is crucial. If you introduce a change that affects resource state (like a new property), ensure it’s added to both the Terraform module (or API call) **and** the manifest format, and propagated to Port.
 
-## Implementation Tasks
-Below is the breakdown of tasks to be implemented. Each task should be undertaken by an AI agent sequentially. **Agents: mark tasks as done and update context when completed.**
+### Workflow Structure & Best Practices
 
-1. ~~Scaffold Repository Structure~~: Basic directory layout created (`repositories/`, `teams/`, `environments/`, `.github/workflows/`, `.github/actions/`) with placeholder Terraform files and README.
-2. ~~Implement GitHub App Authentication~~: Workflows will use `actions/create-github-app-token@v1` directly to obtain installation tokens using `APP_ID` and `APP_PRIVATE_KEY` secrets.
-3. ~~Terraform Module – Repository~~: Implemented Terraform config in `repositories/` (`main.tf`, `variables.tf`, `outputs.tf`) creating a GitHub repository with configurable name, visibility, description, optional template, and optional initial team attachment. Tested with a dry run.
-4. ~~Terraform Module – Team~~: Implemented Terraform config in `teams/` creating a GitHub team with configurable name, description, privacy, and optional member addition.
-5. ~~Workflow – Create Repository~~: Workflow `create-repository.yml` provisions repos via Terraform and cookiecutter, commits manifests, and upserts to Port using composite actions. A validation script checks naming and uniqueness.
-6. ~~Workflow – Create Team~~: Workflow `.github/workflows/create-team.yml` creates teams via Terraform, commits manifests, and syncs with Port.
-7. ~~Workflow – Update Team~~: `.github/workflows/update-team.yml` updates existing teams. Handles settings via Terraform and membership adjustments with modes (`set` via Terraform; `add`/`remove` via API), commits manifests, and upserts to Port.
-8. ~~Workflow – Update Repository~~: Workflow `.github/workflows/update-repository.yml` updates repository settings, commits manifests, and syncs with Port.
-9. ~~Workflow – Add Team to Repo~~: `.github/workflows/add-team-to-repo.yml` grants or upgrades team access via GitHub API, updates repository and optional team manifests, commits, and syncs with Port.
-10. ~~Workflow – Remove Team from Repo~~: `.github/workflows/remove-team-from-repo.yml` revokes access, updates YAML manifests, commits, and syncs with Port.
-11. ~~Workflow – Archive Repository~~: `.github/workflows/archive-repository.yml` archives repositories via Terraform, updates manifests, commits, and syncs with Port.
-12. ~~Workflow – Delete Team~~: `.github/workflows/delete-team.yml`. Validate, delete via Terraform or API, update/remove YAML(s), commit, update Port.
-13. **Review and refine**: Review all workflows, modules, and manifests for consistency, applying improvements and lessons learned from later tasks to earlier implementations.
-14. **Reusable Components**: Refactor common code. E.g., create a composite action for committing YAML (stage, commit, push), one for Port API calls (to avoid rewriting curl logic), and one for Terraform apply steps. Update workflows to use these.
-15. **Placeholder – Add Environment**: `.github/workflows/add-environment.yml`. (Design stub for now; actual implementation later.)
-16. **Testing & Validation**: Write example dummy Port payloads and test workflows locally (using `act` or in a test repo) to ensure logic works. Adjust as needed.
-17. **Documentation**: Update README.md with instructions on how Port triggers the workflows, what each workflow does, and how to configure the GitHub App and Azure backend.
+All workflows reside in `.github/workflows/` and each corresponds to a specific operation. When creating or editing a workflow, adhere to the standard structure and practices:
 
-*Note:* After completing each task, **update this list**, mark tasks as done (e.g., ~~task~~ or a checkmark), and add any new insights or required changes to the design above. Keep this file up-to-date so that the next agent has the latest context.
+* **Inputs and Parsing:** Define a `workflow_dispatch` trigger with a `port_payload` input (JSON string). The first step should parse this JSON (we use `jq` in a run step) to extract all necessary variables and export them to the environment. This typically includes things like `RUN_ID` (Port’s execution id), `BLUEPRINT` (Port blueprint name), resource names, and user-provided parameters. Use `set -euo pipefail` in parsing scripts to catch errors, and use `jq -e` to validate that required fields exist.
 
-### Notes
- - Repository update workflow added; Terraform module expanded for repo settings and default branch management.
- - No provider gaps identified; settings managed via Terraform.
- - Team creation workflow and Terraform module added; includes `scripts/validate-team-name.sh`. Non-org members are skipped.
- - Composite action `commit-yaml` introduced; Port interactions now use `port-labs/port-github-action`.
- - Terraform state backend authenticates to Azure via OIDC; configure `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_STORAGE_ACCOUNT`, and `AZURE_STORAGE_CONTAINER` secrets.
- - Future improvement: reusable action to mint GitHub App tokens.
- - README now documents required secrets and variables.
-- Update team workflow implemented with membership strategies:
-  - `members_mode: set` manages full membership via Terraform (removes absent users).
-  - `members_mode: add`/`remove` adjust memberships incrementally via GitHub API.
-- Non-org users are skipped and reported as warnings back to Port.
-- Resolved YAML syntax issues in workflow here-doc sections to ensure GitHub Actions load correctly.
-- Fixed `create-team` workflow actionlint issues by upgrading `azure/login` to v2 and correcting Terraform step indentation.
-- Add-team-to-repo workflow implemented; uses GitHub API, never downgrades permissions (upgrade-only).
-- Repository manifests are the source of truth for team access; `mirror_on_team_manifest` optionally updates team manifests for dual-sourcing.
+* **Authentication:** Use the GitHub App token for any GitHub operations beyond this repository. Each workflow includes a step:
 
-- Remove-team-from-repo workflow added; revokes team access via GitHub API, updates manifests, and syncs with Port.
-- Idempotent: succeeds with no-op when the team has no repository access.
-- Guardrail: fails early if the repository is archived.
-- Improvement: centralize Port blueprint names to avoid hardcoding across workflows.
-- Archive repository workflow added; uses Terraform `archived` flag in the repo module instead of direct API calls, ensuring lifecycle ownership via state.
-- Repo module now supports an `archived` variable and output. Consider updating the plan to include unarchive handling and a reusable Port upsert action.
-- Delete team workflow added; Terraform destroy uses per-team state and scrubs all repository manifest references.
-- Team module updated to allow deletion by slug (optional `team_slug`, default `privacy`), easing destroy operations.
-- Future improvement: centralized script for manifest scrub to avoid duplicating Python across workflows.
+  ```yaml
+  - name: Get GitHub App token  
+    uses: actions/create-github-app-token@v1  
+    with: { app-id: ..., private-key: ..., installation-id: ... }  
+  ```
+
+  followed by exporting the token to the `GITHUB_TOKEN` env. This ensures that subsequent `gh` CLI calls or Terraform (which uses the provider with the env var) have the needed org permissions. As mentioned, we plan to wrap this in a reusable action for simplicity; if it’s done, just call that action instead. **Do not use** the default `GITHUB_TOKEN` for org operations, as it lacks the required permissions.
+
+* **Validation:** Implement pre-condition checks as separate steps. Common validations include: name uniqueness (we provide `scripts/validate-name.sh` and `scripts/validate-team-name.sh` for this purpose), input sanity (e.g., privacy must be "secret" or "closed" for teams, repo visibility must be one of allowed values, etc.), and existence checks (e.g., ensure a repo exists before updating or archiving, ensure a team exists before trying to remove it). Fail fast with clear error messages if validation fails. This prevents wasting time on Terraform calls that will error out or partial changes.
+
+* **Provisioning with Terraform:** Whenever possible, call Terraform to make changes. We have a consistent approach: run `azure/login@v2` to ensure Azure auth for state, then `terraform init` with backend config pointing to the correct key (see existing workflows for examples). Follow with `terraform apply -auto-approve` (or `terraform destroy` for deletions). Pass variables for all dynamic values (org name, resource names, settings). After apply, capture outputs by running `terraform output -json > tf.json` and parse with `jq` to export any needed output values to environment (IDs, URLs, etc.). **Important:** If your Terraform module doesn’t manage certain aspects by design (e.g., team memberships in update-repo), ensure those are either handled in another step or explicitly ignored. Avoid Terraform inadvertently undoing changes made by other workflows by carefully scoping resources and using `ignore_changes` if necessary. Keep Terraform runs focused on one thing to minimize side effects.
+
+* **Using the GitHub CLI / API:** For actions Terraform cannot do or where a more fine-grained approach is needed, we use the `gh` CLI (preferred for simplicity) or direct API calls. Examples in the repo include adding/removing team repo permissions (`gh api` calls to REST endpoints), or paging through a list of team repos (`gh api --paginate`). When using `gh`, always check for errors and non-zero exit codes. We often wrap calls in a loop to retry on transient failures (e.g., two attempts to remove a team from a repo before giving up, with a short sleep). For GET requests, parse JSON outputs with `jq`. If writing new API integrations, prefer to stick to JSON outputs and parsing to keep it consistent (avoid expecting specific text unless necessary). And remember to use the installation token for `gh` by ensuring `GH_TOKEN` or `GITHUB_TOKEN` is set to our app token.
+
+* **Status and Idempotency:** Design workflows to handle the “already done” cases gracefully. Many of our workflows set an output or env var to indicate if there was any change. For example, the archive workflow sets `TF_HAS_CHANGES=0/1` depending on Terraform’s plan result, and then uses that to decide if it should report a no-op to Port. Remove-team workflow checks if the team had access; if not, it treats it as a successful no-op rather than an error. This is important for re-runs or when Port triggers an action that doesn’t actually change state – the workflow should still end in success (with a message like “no-op”) rather than failure, unless something truly went wrong. As a contributor, think about how to detect if no change is needed, and handle that case explicitly.
+
+* **Port Integration in Workflows:** Always include steps to **upsert or update Port** at the end of the job. We use `port-labs/port-github-action@v1` extensively – ensure you use the latest version and correct parameters. For UPSERT operations, include all relevant `properties` (serialized as JSON in the YAML) and any `relations` that changed. For status updates, include a meaningful `logMessage` if applicable (e.g., list of skipped users, or note that something was a no-op). If your workflow triggers multiple Port updates (like removing a team triggers updates for both a repo and a team entity), consider using multiple steps or even multiple jobs (as done in delete-team) to handle this. **Never omit the Port update**, because that’s how the front-end knows what happened. Also, always include a failure-report step (`if: failure()`) to PATCH the run status to failure. This should come at the very end of the job definition so any earlier failure triggers it.
+
+* **Committing Changes:** Use the `commit-yaml` composite action to commit any file changes. This action is located in `.github/actions/commit-yaml` – it takes inputs `path` (file or directory path to commit) and `message` (commit message). It handles the Git add/commit/push using the checkout and the repo’s default credentials. When calling it, ensure that path exists (the action will create directories if needed) and that your message is concise and in the imperative mood (by convention). For example: “Add repository 'foo' (automated via Port)” or “Update team 'bar' (settings changed via Port)”. If multiple files might change, you can pass a directory path (like `repositories/manifests`) and stage changes beforehand if needed (as seen in remove-team, where we stage the team manifest removal separately). The composite uses `actions/checkout@v4` internally and pushes to `main`. If for some reason commit-yaml doesn’t meet a new use case, update it rather than doing a one-off commit in a workflow – this keeps all commits uniform.
+
+* **Error Handling and Logging:** Many steps have `set -e` which is good to fail fast on errors. For expected intermittent issues (e.g., state lock contention, API rate limits), incorporate retry logic as seen in existing flows. Always output informative messages to both the Actions log and Port logMessage. If a step fails and you catch it (using shell logic), be sure to still indicate failure properly (by exiting non-zero or setting an environment flag that later causes the workflow to mark failure). The Port action for failure reporting should not be missed – otherwise Port will think the run is still in progress or succeed without knowing of errors. We include a final step to mark the manifest’s phase as failed in case of errors; consider if your changes require any cleanup like that.
+
+### Reusable Components and Tools
+
+This project set up a few reusable pieces to avoid repetition. Be familiar with them and use them where appropriate:
+
+* **`scripts/validate-name.sh` & `validate-team-name.sh`:** Shell scripts to check that a repository or team name meets our org’s conventions and isn’t already taken. They use the GitHub CLI to search for existing names. Use these in create workflows before proceeding to Terraform, to provide quick feedback if a name is invalid or duplicate.
+
+* **Composite Actions:** Currently we have at least one composite action, `commit-yaml`, as described. If you find yourself writing identical steps across multiple workflows, consider making a composite action under `.github/actions/`. Past suggestions include one for Terraform apply (wrapping init/plan/apply) and one for the GitHub App auth. Feel free to create those if it simplifies the code – just document their usage in this guide or in the action’s README. Make sure any composite is flexible enough via inputs to handle the slight variations in different workflows.
+
+* **Terraform Modules:** The Terraform code is modular. The `repositories/modules/repo` module manages a single GitHub repository (resource `github_repository` plus related resources like `github_team_repository` for initial team and `github_branch_default`). The `teams/modules/team` module manages a single team (`github_team` resource and a set of `github_team_membership` resources for members). When modifying modules, maintain backward compatibility with how workflows pass variables. For instance, the team module expects either `team_name` or `team_slug` (slug is used for deletion cases) and a `members` list. If you extend modules (say to support updating a repo’s topics or enabling/disabling features), add corresponding input variables with sane defaults (so that older calls without those vars still work). Always run `terraform validate` after changes. If adding a new module (e.g., for environments or repository rules), follow the pattern: define variables clearly, use `null` or empty defaults to make inputs optional when possible, and use data sources to look up any existing resource (like we do for `data.github_team.parent` to find a parent team ID). Keep outputs minimal – just what the workflows need (IDs, URLs, etc.). Document new variables in a comment or in the module’s README if complex.
+
+* **actionlint and Other Linters:** We can’t stress enough the importance of linting. Before committing a workflow change, run `actionlint`. It will catch issues like missing `runs-on`, unused variables, deprecated syntax, etc. We resolved numerous small issues by doing this (for example, upgrading Azure login action to v2 for OIDC support, fixing YAML multiline strings, etc. as noted in project notes). For shell scripts, consider using `shellcheck` if available to avoid common scripting pitfalls. For Python scripts, ensure they run in a minimal environment (avoid requiring external libraries unless necessary – we install `pyyaml` on the fly where needed). The goal is to keep the workflows reliable.
+
+* **Local Testing:** If you’re an AI agent without direct ability to run code, you rely on static analysis. But if a human contributor is reading, they should test changes using a tool like `act` (which can execute GitHub Actions locally) or by pushing to a test repo. Add sample event payloads in a `tests/` directory if it helps, so that we can simulate Port’s input. A dummy Port payload JSON for each workflow can save time when testing.
+
+### Port Integration Details
+
+Since Port is integral, here are some specifics to ensure integration remains consistent:
+
+* **Port Credentials:** We use `PORT_CLIENT_ID` and `PORT_CLIENT_SECRET` (client credentials for Port’s API). These are stored as GitHub Secrets and provided to the Port action. As a developer, you typically won’t need to use these directly – just pass them to the action. But if a scenario arises where the Port action doesn’t support something and you need to call Port’s API manually (rare), use these creds to obtain a token (OAuth Client Credentials flow) and call the API with proper auth. Avoid printing these or exposing them in logs.
+
+* **Blueprint Naming:** The blueprint name (or ID) tells Port which entity type we are upserting. We currently expect names like `githubRepository` and `githubTeam`. Port sends the triggering blueprint in the payload (`blueprint` field) – usually the blueprint of the entity that initiated the action. **Use that whenever applicable** to avoid hardcoding. In some workflows, we needed to update related entities of a different blueprint; in those cases we have temporarily hardcoded the known blueprint name (e.g., using `"githubRepository"` when updating repos in the delete-team workflow). A future improvement is centralizing these as constants. Until then, if you need to reference a blueprint that isn’t the one in the payload, double-check the exact identifier in Port and use it carefully. Keep such usage to a minimum and document it in comments.
+
+* **Entity Relationships:** Port’s data model likely has relationships between the Repository and Team blueprints (e.g., a repo has an “owner team” relation, a team has a list of “repositories”). Our workflows maintain these: when a repo is created, we set its owner relation to the team (if provided); when a team is removed from a repo, we update both sides if mirroring is enabled. Any new workflow you write must consider how it affects Port data. For example, if implementing an environment, think about linking that environment to a repo or team in Port and update relations accordingly. Strive to keep Port’s view consistent with reality at all times.
+
+* **Run Lifecycle:** Each Port-triggered run expects a final status. We do success and failure. If Port supports intermediate logs or statuses, we currently just accumulate any messages to send on success (like skipped users). We don’t yet use the Port action to stream logs in real-time. If Port introduces features like steps or checkpoint updates, we could leverage that, but for now keep it simple: one upsert with status success or one patch-run with failure at the end. Port’s run ID ties the workflow run to Port’s UI, so always use `runId: ${{ env.RUN_ID }}` in the Port action calls.
+
+### Contribution Workflow for Agents
+
+If you are taking on a new task (like one of the future improvements listed in the Plan, or a bug fix), please follow this process:
+
+1. **Read the Context:** Make sure you understand this guide and have skimmed relevant parts of the codebase (workflows and modules) related to your task. Consistency is key – mimic the style and approach used elsewhere in the repo to maintain uniformity.
+
+2. **Update Documentation as You Go:** This `AGENTS.md` (guide) and the `PLAN.md` (design/plan document) should be kept up-to-date. If your changes adjust a design decision or fulfill a planned task, update those files. For instance, if you implement the unarchive workflow, mark that task as done in the Plan and add notes here about how unarchiving is handled. Transparency in the development log helps future maintainers.
+
+3. **Testing and Validation:** After writing or modifying a workflow, run `actionlint`. If possible, simulate a run. For Terraform changes, run `terraform validate` and maybe `terraform plan` with test inputs. We aim for zero errors when things are merged. If you find issues in existing code during your task (even minor ones), feel free to address them as part of your contribution (but mention it in your commit message or PR description for clarity).
+
+4. **Commit Conventions:** Use clear commit messages, as they become part of the automation log. Since all commits go to main (or a feature branch that will be merged without squashing, if using a PR for review), make each commit count. Examples: “Implement unarchive-repository workflow” or “Refactor manifest update logic into script”. The first line should be concise (<50 chars ideally), and you can add details below if needed. Also, when committing via the workflows (in automation), ensure those messages follow the pattern described earlier.
+
+5. **Review and Iteration:** If you’re an AI agent handing off to another, make sure to clearly mark in `AGENTS.md` what you did and any assumptions. If you’re a human, try to get a code review if available – another pair of eyes can spot inconsistencies with established patterns. Our primary goal is to keep the system reliable; a small oversight in a workflow can have cascading effects (like failing to remove a team from all repos). So double-check logic paths, especially for edge cases.
+
+6. **Stay Aligned with Goals:** Any feature or fix should ultimately support the automation and GitOps philosophy of the project. If you think a request or idea conflicts with our core principles (e.g., someone suggests a manual override or bypassing the YAML commits), raise that concern. It’s better to adjust the approach than undermine the model. We want all sources (Terraform state, YAML, Port, GitHub) to remain consistent.
+
+By following this guide, you’ll help maintain a high-quality, stable automation framework for GitHub management via Port. We have come a long way through sequential task completion – replacing custom implementations with robust standard ones, and learning from each workflow to improve the next. Continue that spirit: when you implement something, consider if its pattern could improve earlier parts, and if so, apply those refinements across the board (e.g., we went back and fixed all workflows to use the `commit-yaml` action once we developed it, and switched all Port calls to the official action when it proved effective).
+
+Thank you for contributing to Port GitHub Automation. With each improvement, we reduce toil for platform engineers and empower developers via Port to self-service their GitHub needs in a safe, auditable way. Keep up the good work, and happy automating!

@@ -408,6 +408,7 @@ We also consider if upon archiving we want to lock down any teams or settings â€
 - **Terraform Usage:** Use Terraform GitHub provider for resources when possible (repos, teams, memberships, etc.). Use GitHub CLI or API for features not in provider (e.g., repository templates via cookiecutter, environment configs).
 - **State Management:** Remote backend on Azure; state files segmented (e.g., one per repo or team) to keep them small and avoid conflicts. Use naming convention in backend config (like `repos/<name>.tfstate`).
 - **Port Integration:** Port client ID/secret used to call Portâ€™s API to create/update entities (Bluepint entries) and report action status. Each workflow parses a `port_payload` JSON input from Port to get context and user inputs.
+- **Manifest Scrubbing:** Consider a reusable script or action to remove team references from repository manifests, reducing duplicated Python snippets across workflows.
 
 ## Conclusion
 

@@ -1,0 +1,249 @@
+name: Delete GitHub team
+
+on:
+  workflow_dispatch:
+    inputs:
+      port_payload:
+        description: "Port JSON payload"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+env:
+  GH_ORG: ${{ secrets.GH_ORG }}
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    outputs:
+      repos: ${{ steps.manifests.outputs.repos }}
+      run_id: ${{ env.RUN_ID }}
+      port_message: ${{ env.PORT_MESSAGE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse payload
+        run: |
+          set -euo pipefail
+          PAYLOAD='${{ inputs.port_payload }}'
+          echo "$PAYLOAD" | jq -e '.runId,.blueprint,.properties.team_slug' >/dev/null
+          RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)
+          BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)
+          REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)
+          TEAM_SLUG=$(echo "$PAYLOAD" | jq -r .properties.team_slug | tr 'A-Z' 'a-z' | xargs)
+          FORCE=$(echo "$PAYLOAD" | jq -r '.properties.force // false')
+          NOTE=$(echo "$PAYLOAD" | jq -r '.properties.note // ""')
+          if [[ -z "$TEAM_SLUG" ]]; then echo "team_slug required" >&2; exit 1; fi
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
+          echo "BLUEPRINT=$BLUEPRINT" >> $GITHUB_ENV
+          echo "REQUESTED_BY=$REQUESTED_BY" >> $GITHUB_ENV
+          echo "TEAM_SLUG=$TEAM_SLUG" >> $GITHUB_ENV
+          echo "FORCE=$FORCE" >> $GITHUB_ENV
+          echo "NOTE=$NOTE" >> $GITHUB_ENV
+          echo "NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
+      - name: Get GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          installation-id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+
+      - name: Export token
+        run: echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> $GITHUB_ENV
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Discover existence
+        run: |
+          set -euo pipefail
+          if gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}" >/tmp/team.json 2>/tmp/team.err; then
+            TEAM_EXISTS=true
+            TEAM_NAME=$(jq -r .name /tmp/team.json)
+            echo "TEAM_NAME=$TEAM_NAME" >> $GITHUB_ENV
+            repos=$(gh api --paginate "/orgs/${GH_ORG}/teams/${TEAM_SLUG}/repos" -q '.[].name') || true
+            if [[ -n "$repos" && "$FORCE" != "true" ]]; then
+              echo "Warning: team has repo access: $repos" >&2
+            fi
+          else
+            if grep -q 'Not Found' /tmp/team.err; then
+              TEAM_EXISTS=false
+            else
+              cat /tmp/team.err >&2; exit 1
+            fi
+          fi
+          echo "TEAM_EXISTS=$TEAM_EXISTS" >> $GITHUB_ENV
+          state=$(az storage blob exists --account-name ${{ secrets.AZURE_STORAGE_ACCOUNT }} --container-name ${{ secrets.AZURE_STORAGE_CONTAINER }} --name teams/${TEAM_SLUG}.tfstate --auth-mode login -o tsv --query exists)
+          echo "STATE_EXISTS=$state" >> $GITHUB_ENV
+          if [[ "$TEAM_EXISTS" != "true" && "$state" != "true" ]]; then
+            echo "MODE=no-op" >> $GITHUB_ENV
+          else
+            echo "MODE=destroy" >> $GITHUB_ENV
+          fi
+
+      - name: Terraform destroy
+        if: env.MODE == 'destroy'
+        working-directory: teams/modules/team
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ secrets.AZURE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ secrets.AZURE_STORAGE_CONTAINER }}" \
+            -backend-config="key=teams/${TEAM_SLUG}.tfstate" \
+            -backend-config="use_azuread_auth=true"
+          NAME=${TEAM_NAME:-$TEAM_SLUG}
+          for i in 1 2; do
+            terraform destroy -auto-approve \
+              -var "org=$GH_ORG" \
+              -var "team_slug=$TEAM_SLUG" \
+              -var "team_name=$NAME" \
+              -var "privacy=closed" \
+              -var "description=" \
+              -var "parent_team_slug=" && break || true
+            if [ "$i" -eq 2 ]; then exit 1; fi
+            sleep 5
+          done
+
+      - name: Verify deletion
+        if: env.MODE == 'destroy'
+        run: |
+          set -e
+          if gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}" >/dev/null 2>&1; then
+            echo "Team still exists after destroy" >&2; exit 1; fi
+
+      - name: Set Port message
+        run: |
+          if [ "$MODE" = "no-op" ]; then
+            msg="no-op (team already absent)"
+          else
+            msg="team deleted via Terraform"
+          fi
+          if [ -n "$NOTE" ]; then msg="$msg - $NOTE"; fi
+          echo "PORT_MESSAGE=$msg" >> $GITHUB_ENV
+
+      - name: Clean manifests
+        id: manifests
+        run: |
+          set -euo pipefail
+          pip install pyyaml >/dev/null
+          slug="$TEAM_SLUG"; ts="$NOW"
+          removed=false
+          if [ -f "teams/manifests/${slug}.yaml" ]; then
+            git rm -f "teams/manifests/${slug}.yaml"
+            removed=true
+          fi
+          python <<'PY' > repo_updates.json
+          import os, yaml, json, glob
+          slug=os.environ['TEAM_SLUG']; ts=os.environ['NOW']
+          changed=[]
+          updates=[]
+          for path in glob.glob('repositories/manifests/*.yaml'):
+              with open(path) as f:
+                  data=yaml.safe_load(f) or {}
+              teams=data.get('teams',[])
+              new=[t for t in teams if t.get('slug')!=slug]
+              if new!=teams:
+                  data['teams']=new
+                  status=data.setdefault('status',{})
+                  status['lastUpdatedAt']=ts
+                  with open(path,'w') as f: yaml.safe_dump(data,f,sort_keys=False)
+                  changed.append(path)
+                  updates.append({'name':os.path.splitext(os.path.basename(path))[0],'teams':[t.get('slug') for t in new]})
+          print(json.dumps({'changed':changed,'updates':updates}))
+          PY
+          for p in $(jq -r '.changed[]' repo_updates.json); do git add "$p"; done
+          echo "repos=$(jq -c '.updates' repo_updates.json)" >> $GITHUB_OUTPUT
+          echo "team_removed=$removed" >> $GITHUB_OUTPUT
+
+      - name: Determine commit path
+        run: |
+          path="repositories/manifests"
+          if [ "${{ steps.manifests.outputs.repos }}" = "[]" ]; then
+            path="teams/manifests"
+          fi
+          echo "COMMIT_PATH=$path" >> $GITHUB_ENV
+
+      - name: Build commit message
+        run: |
+          msg="Delete team '${TEAM_SLUG}' via Terraform (Port)"
+          if [ -n "$NOTE" ]; then msg="$msg - $NOTE"; fi
+          echo "COMMIT_MSG=$msg" >> $GITHUB_ENV
+
+      - name: Commit manifests
+        uses: ./.github/actions/commit-yaml
+        with:
+          path: ${{ env.COMMIT_PATH }}
+          message: ${{ env.COMMIT_MSG }}
+
+      - name: Delete team in Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: DELETE
+          blueprint: ${{ env.BLUEPRINT }}
+          identifier: ${{ env.TEAM_SLUG }}
+          runId: ${{ env.RUN_ID }}
+          status: success
+          logMessage: ${{ env.PORT_MESSAGE }}
+
+      - name: Report failure to Port
+        if: failure()
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          status: failure
+          logMessage: 'Workflow failed'
+
+  update-port-repos:
+    needs: delete
+    if: needs.delete.outputs.repos != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        repo: ${{ fromJson(needs.delete.outputs.repos) }}
+    steps:
+      - name: Update repository in Port
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: UPSERT
+          identifier: ${{ matrix.repo.name }}
+          title: ${{ matrix.repo.name }}
+          blueprint: githubRepository
+          relations: |
+            { "teams": ${{ toJson(matrix.repo.teams) }} }
+          runId: ${{ needs.delete.outputs.run_id }}
+          status: success
+          logMessage: ${{ needs.delete.outputs.port_message }}
+
+# Tests:
+# - Happy path: existing team with repo access -> destroyed, manifests removed.
+# - No-op: team absent -> manifests scrubbed, Port success.
+# - Backend lock: transient error on destroy retries then succeeds.
+# - Destroy failure: terraform destroy fails -> Port failure, manifests untouched.
+# - Commit collision: concurrent commit requires retry.

@@ -3,11 +3,18 @@ variable "org" {
 }
 
 variable "team_name" {
-  type = string
+  type    = string
+  default = ""
+}
+
+variable "team_slug" {
+  type    = string
+  default = ""
 }
 
 variable "privacy" {
-  type = string
+  type    = string
+  default = "closed"
   validation {
     condition     = contains(["closed", "secret"], var.privacy)
     error_message = "Privacy must be 'closed' or 'secret'."

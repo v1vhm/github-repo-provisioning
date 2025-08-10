@@ -129,27 +129,7 @@ jobs:
           aliases_block=$(echo "$ALIASES" | jq -r '.[] | "- \(.)"')
           members_formatted=$(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
           aliases_formatted=$(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
-          cat > "teams/manifests/${TEAM_SLUG}.yaml" <<MANIFEST
-          apiVersion: v1
-          kind: GitHubTeam
-          metadata:
-            name: "$TEAM_NAME"
-            slug: "$TEAM_SLUG"
-            createdAt: "$CREATED_AT"
-            createdBy: "$REQUESTED_BY"
-          spec:
-            description: "$DESCRIPTION"
-            privacy: "$PRIVACY"
-            parent:
-              slug: "${PARENT_TEAM_SLUG:-null}"
-            members:
-            $members_formatted
-              aliases:
-            $aliases_formatted
-            status:
-              phase: creating
-            MANIFEST
-                      echo "MANIFEST=teams/manifests/${TEAM_SLUG}.yaml" >> "$GITHUB_ENV"
+          scripts/draft-team-manifest.sh "$TEAM_SLUG" "$TEAM_NAME" "$CREATED_AT" "$REQUESTED_BY" "$DESCRIPTION" "$PRIVACY" "$PARENT_TEAM_SLUG" "$members_formatted" "$aliases_formatted"
 
       - name: Azure login
         if: ${{ inputs.mock == 'false' }}

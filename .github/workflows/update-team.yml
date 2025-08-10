@@ -76,18 +76,7 @@ jobs:
           MANIFEST_PATH="teams/manifests/${TEAM_SLUG}.yaml"
           if [ -f "$MANIFEST_PATH" ]; then
             pip install pyyaml >/dev/null
-            python - <<'PY' >> "$GITHUB_ENV"
-              import os, json, yaml
-              p=os.environ['MANIFEST_PATH']
-              with open(p) as f:
-                data=yaml.safe_load(f)
-              print(f"EXISTING_CREATED_AT={data.get('metadata',{}).get('createdAt','')}")
-              print(f"EXISTING_CREATED_BY={data.get('metadata',{}).get('createdBy','')}")
-              import json as j
-              print(f"EXISTING_ALIASES={j.dumps(data.get('spec',{}).get('aliases',[]))}")
-              print(f"EXISTING_ID={data.get('status',{}).get('id','')}")
-              print(f"EXISTING_HTML_URL={data.get('status',{}).get('htmlUrl','')}")
-            PY
+            scripts/load-existing-manifest.py "$MANIFEST_PATH" >> "$GITHUB_ENV"
           else
             {
               echo "EXISTING_CREATED_AT="
@@ -321,29 +310,9 @@ jobs:
           mkdir -p teams/manifests
           members_block=$(echo "$FINAL_MEMBERS" | jq -r '.[] | "- username: \(.username)\n  role: \(.role)"')
           aliases_block=$(echo "$ALIASES_FINAL" | jq -r '.[] | "- \(.)"')
-          cat > "teams/manifests/${TEAM_SLUG}.yaml" <<MANIFEST
-          apiVersion: v1
-          kind: GitHubTeam
-          metadata:
-            name: "$TEAM_NAME"
-            slug: "$TEAM_SLUG"
-          $(if [ -n "$EXISTING_CREATED_AT" ]; then echo "  createdAt: \"$EXISTING_CREATED_AT\""; fi)
-          $(if [ -n "$EXISTING_CREATED_BY" ]; then echo "  createdBy: \"$EXISTING_CREATED_BY\""; fi)
-          spec:
-            description: "$DESCRIPTION"
-            privacy: "$PRIVACY"
-            parent:
-              slug: "${PARENT_TEAM_SLUG:-null}"
-            members:
-            $(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
-              aliases:
-            $(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
-            status:
-              id: "${TEAM_ID:-$EXISTING_ID}"
-              htmlUrl: "${HTML_URL:-$EXISTING_HTML_URL}"
-              phase: active
-              lastUpdatedAt: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            MANIFEST
+          members_formatted=$(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
+          aliases_formatted=$(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
+          scripts/draft-update-team-manifest.sh "$TEAM_SLUG" "$TEAM_NAME" "$EXISTING_CREATED_AT" "$EXISTING_CREATED_BY" "$DESCRIPTION" "$PRIVACY" "$PARENT_TEAM_SLUG" "$members_formatted" "$aliases_formatted" "${TEAM_ID:-$EXISTING_ID}" "${HTML_URL:-$EXISTING_HTML_URL}"
 
       - name: Commit manifest
         if: ${{ inputs.mock == 'false' }}

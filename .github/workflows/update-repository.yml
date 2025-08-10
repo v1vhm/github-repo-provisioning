@@ -212,7 +212,7 @@ jobs:
               "enable_wiki": $ENABLE_WIKI,
               "default_branch": $DEFAULT_BRANCH_JSON
             }
-VARS
+          VARS
           terraform plan -out=tfplan -detailed-exitcode >/tmp/plan.log && code=$? || code=$?
           if [ $code -eq 2 ]; then
             TF_HAS_CHANGES=1

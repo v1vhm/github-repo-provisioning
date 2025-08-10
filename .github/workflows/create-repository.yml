@@ -73,26 +73,26 @@ jobs:
           mkdir -p repositories/manifests
           context_lines=$(echo "$COOKIECUTTER_CONTEXT" | jq -r 'to_entries[] | "      \(.key): \"\(.value)\""')
           cat > "repositories/manifests/${REPO_NAME}.yaml" <<MANIFEST
-apiVersion: v1
-kind: GitHubRepository
-metadata:
-  name: $REPO_NAME
-  createdAt: "$CREATED_AT"
-  createdBy: "$REQUESTED_BY"
-spec:
-  description: "$DESCRIPTION"
-  visibility: "$VISIBILITY"
-  ownerTeam:
-    slug: "$OWNER_TEAM_SLUG"
-    permission: "$OWNER_TEAM_PERMISSION"
-  template:
-    source: "$COOKIECUTTER_TEMPLATE"
-    context:
-${context_lines}
-status:
-  phase: creating
-MANIFEST
-          echo "MANIFEST=repositories/manifests/${REPO_NAME}.yaml" >> "$GITHUB_ENV"
+          apiVersion: v1
+          kind: GitHubRepository
+          metadata:
+            name: $REPO_NAME
+            createdAt: "$CREATED_AT"
+            createdBy: "$REQUESTED_BY"
+          spec:
+            description: "$DESCRIPTION"
+            visibility: "$VISIBILITY"
+            ownerTeam:
+              slug: "$OWNER_TEAM_SLUG"
+              permission: "$OWNER_TEAM_PERMISSION"
+            template:
+              source: "$COOKIECUTTER_TEMPLATE"
+              context:
+          ${context_lines}
+          status:
+            phase: creating
+          MANIFEST
+                    echo "MANIFEST=repositories/manifests/${REPO_NAME}.yaml" >> "$GITHUB_ENV"
 
       - name: Azure login
         if: ${{ inputs.mock == 'false' }}
@@ -190,28 +190,28 @@ MANIFEST
         run: |
           context_lines=$(echo "$COOKIECUTTER_CONTEXT" | jq -r 'to_entries[] | "      \(.key): \"\(.value)\""')
           cat > "$MANIFEST" <<MANIFEST
-apiVersion: v1
-kind: GitHubRepository
-metadata:
-  name: $REPO_NAME
-  createdAt: "$CREATED_AT"
-  createdBy: "$REQUESTED_BY"
-spec:
-  description: "$DESCRIPTION"
-  visibility: "$VISIBILITY"
-  ownerTeam:
-    slug: "$OWNER_TEAM_SLUG"
-    permission: "$OWNER_TEAM_PERMISSION"
-  template:
-    source: "$COOKIECUTTER_TEMPLATE"
-    context:
-$context_lines
-status:
-  id: "$repo_id"
-  htmlUrl: "$html_url"
-  sshUrl: "$ssh_url"
-  phase: active
-MANIFEST
+          apiVersion: v1
+          kind: GitHubRepository
+          metadata:
+            name: $REPO_NAME
+            createdAt: "$CREATED_AT"
+            createdBy: "$REQUESTED_BY"
+          spec:
+            description: "$DESCRIPTION"
+            visibility: "$VISIBILITY"
+            ownerTeam:
+              slug: "$OWNER_TEAM_SLUG"
+              permission: "$OWNER_TEAM_PERMISSION"
+            template:
+              source: "$COOKIECUTTER_TEMPLATE"
+              context:
+          $context_lines
+          status:
+            id: "$repo_id"
+            htmlUrl: "$html_url"
+            sshUrl: "$ssh_url"
+            phase: active
+          MANIFEST
 
       - name: Commit manifest
         if: ${{ inputs.mock == 'false' }}

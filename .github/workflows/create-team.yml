@@ -130,26 +130,26 @@ jobs:
           members_formatted=$(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
           aliases_formatted=$(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
           cat > "teams/manifests/${TEAM_SLUG}.yaml" <<MANIFEST
-apiVersion: v1
-kind: GitHubTeam
-metadata:
-  name: "$TEAM_NAME"
-  slug: "$TEAM_SLUG"
-  createdAt: "$CREATED_AT"
-  createdBy: "$REQUESTED_BY"
-spec:
-  description: "$DESCRIPTION"
-  privacy: "$PRIVACY"
-  parent:
-    slug: "${PARENT_TEAM_SLUG:-null}"
-  members:
-$members_formatted
-  aliases:
-$aliases_formatted
-status:
-  phase: creating
-MANIFEST
-          echo "MANIFEST=teams/manifests/${TEAM_SLUG}.yaml" >> "$GITHUB_ENV"
+          apiVersion: v1
+          kind: GitHubTeam
+          metadata:
+            name: "$TEAM_NAME"
+            slug: "$TEAM_SLUG"
+            createdAt: "$CREATED_AT"
+            createdBy: "$REQUESTED_BY"
+          spec:
+            description: "$DESCRIPTION"
+            privacy: "$PRIVACY"
+            parent:
+              slug: "${PARENT_TEAM_SLUG:-null}"
+            members:
+            $members_formatted
+              aliases:
+            $aliases_formatted
+            status:
+              phase: creating
+            MANIFEST
+                      echo "MANIFEST=teams/manifests/${TEAM_SLUG}.yaml" >> "$GITHUB_ENV"
 
       - name: Azure login
         if: ${{ inputs.mock == 'false' }}
@@ -187,8 +187,8 @@ MANIFEST
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           cat > members.auto.tfvars.json <<EOF
-{ "members": $TF_MEMBERS }
-EOF
+          { "members": $TF_MEMBERS }
+          EOF
           terraform apply -auto-approve \
             -var "org=$GH_ORG" \
             -var "team_name=$TEAM_NAME" \
@@ -233,27 +233,27 @@ EOF
           members_block=$(echo "$TF_MEMBERS" | jq -r '.[] | "- username: \(.username)\n  role: \(.role)"')
           aliases_block=$(echo "$ALIASES" | jq -r '.[] | "- \(.)"')
           cat > "$MANIFEST" <<MANIFEST
-apiVersion: v1
-kind: GitHubTeam
-metadata:
-  name: "$TEAM_NAME"
-  slug: "$TEAM_SLUG"
-  createdAt: "$CREATED_AT"
-  createdBy: "$REQUESTED_BY"
-spec:
-  description: "$DESCRIPTION"
-  privacy: "$PRIVACY"
-  parent:
-    slug: "${PARENT_TEAM_SLUG:-null}"
-  members:
-  $(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
-  aliases:
-  $(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
-status:
-  id: "$TEAM_ID"
-  htmlUrl: "$HTML_URL"
-  phase: active
-MANIFEST
+          apiVersion: v1
+          kind: GitHubTeam
+          metadata:
+            name: "$TEAM_NAME"
+            slug: "$TEAM_SLUG"
+            createdAt: "$CREATED_AT"
+            createdBy: "$REQUESTED_BY"
+          spec:
+            description: "$DESCRIPTION"
+            privacy: "$PRIVACY"
+            parent:
+              slug: "${PARENT_TEAM_SLUG:-null}"
+            members:
+            $(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
+            aliases:
+            $(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
+          status:
+            id: "$TEAM_ID"
+            htmlUrl: "$HTML_URL"
+            phase: active
+          MANIFEST
 
       - name: Commit manifest
         if: ${{ inputs.mock == 'false' }}

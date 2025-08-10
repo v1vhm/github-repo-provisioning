@@ -36,6 +36,7 @@ jobs:
           working_directory: ${{ matrix.directory }}
           reporter: github-check
           fail_level: warning
+          tflint_config: 
       - uses: reviewdog/action-terraform-validate@v1
         with:
           workdir: ${{ matrix.directory }}

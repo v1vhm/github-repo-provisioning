@@ -18,6 +18,7 @@ jobs:
       - uses: reviewdog/action-actionlint@v1
         with:
           reporter: github-check
+          level: warning
           fail_level: warning
 
   terraform:
@@ -36,9 +37,11 @@ jobs:
           working_directory: ${{ matrix.directory }}
           reporter: github-check
           fail_level: warning
+          level: warning
           tflint_config: 
       - uses: reviewdog/action-terraform-validate@v1
         with:
           workdir: ${{ matrix.directory }}
           reporter: github-check
+          level: warning
           fail_level: warning

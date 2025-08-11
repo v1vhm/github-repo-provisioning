@@ -161,6 +161,47 @@ jobs:
           git branch -M main
           git push origin main
 
+      - name: Configure repository
+        if: ${{ inputs.mock == 'false' }}
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          GH_SECRETS: ${{ toJson(secrets) }}
+        run: |
+          set -euo pipefail
+          git clone "$COOKIECUTTER_TEMPLATE" template-repo
+          mkdir tf-config
+          yq -o=json template-repo/.provisioning/repository-config.yml > tf-config/config.json
+          jq --argjson s "$GH_SECRETS" '[.secrets // [] | .[] | select(.source=="workflow_secret") | {key: .name, value: $s[.ref]}] | from_entries' tf-config/config.json > tf-config/secret-values.json
+          cat > tf-config/main.tf <<'TF'
+          terraform {
+            required_providers {
+              github = {
+                source  = "integrations/github"
+                version = "~> 6.0"
+              }
+            }
+          }
+
+          provider "github" {
+            owner = var.owner
+          }
+
+          module "initial_config" {
+            source        = "../modules/github-initial-config"
+            owner         = var.owner
+            repo          = var.repo
+            config        = jsondecode(file("${path.module}/config.json"))
+            secret_values = jsondecode(file("${path.module}/secret-values.json"))
+          }
+
+          variable "owner" { type = string }
+          variable "repo"  { type = string }
+          TF
+          cd tf-config
+          terraform init
+          terraform apply -auto-approve -var owner="${GH_ORG}" -var repo="${REPO_NAME}"
+          rm -rf .terraform terraform.tfstate*
+
       - name: Upsert entity to Port
         if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-action@v1

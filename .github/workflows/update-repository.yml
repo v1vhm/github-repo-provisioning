@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Update GitHub repository
 
 on:
@@ -7,6 +10,11 @@ on:
         description: "Port JSON payload"
         required: true
         type: string
+      mock:
+        description: "Run in mock mode, skipping side effects"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -30,34 +38,41 @@ jobs:
           set -euo pipefail
           PAYLOAD='${{ inputs.port_payload }}'
           echo "$PAYLOAD" | jq -e '.runId,.blueprint,.properties.repo_name' >/dev/null
-          echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)" >> $GITHUB_ENV
-          echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)" >> $GITHUB_ENV
-          echo "REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)" >> $GITHUB_ENV
           REPO_NAME=$(echo "$PAYLOAD" | jq -r .properties.repo_name | xargs)
-          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
           DESC_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.description // ""')
-          echo "DESCRIPTION_PAYLOAD=$DESC_PAYLOAD" >> $GITHUB_ENV
           VIS_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.visibility // ""' | xargs)
           if [ -n "$VIS_PAYLOAD" ] && [[ "$VIS_PAYLOAD" != "private" && "$VIS_PAYLOAD" != "internal" && "$VIS_PAYLOAD" != "public" ]]; then
             echo "Invalid visibility: $VIS_PAYLOAD" >&2; exit 1; fi
-          echo "VISIBILITY_PAYLOAD=$VIS_PAYLOAD" >> $GITHUB_ENV
           HOMEPAGE_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.homepage_url // ""' | xargs)
-          echo "HOMEPAGE_URL_PAYLOAD=$HOMEPAGE_PAYLOAD" >> $GITHUB_ENV
           TOPICS_PAYLOAD=$(echo "$PAYLOAD" | jq -c '.properties.topics // empty')
           if [ -n "$TOPICS_PAYLOAD" ]; then
             echo "$TOPICS_PAYLOAD" | jq -e 'all(type=="string")' >/dev/null || { echo "topics must be array of strings" >&2; exit 1; }
           fi
-          echo "TOPICS_PAYLOAD=$TOPICS_PAYLOAD" >> $GITHUB_ENV
           DBM_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.delete_branch_on_merge // ""')
-          echo "DELETE_BRANCH_ON_MERGE_PAYLOAD=$DBM_PAYLOAD" >> $GITHUB_ENV
           ISSUES_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.enable_issues // ""')
-          echo "ENABLE_ISSUES_PAYLOAD=$ISSUES_PAYLOAD" >> $GITHUB_ENV
           WIKI_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.enable_wiki // ""')
-          echo "ENABLE_WIKI_PAYLOAD=$WIKI_PAYLOAD" >> $GITHUB_ENV
           DB_PAYLOAD=$(echo "$PAYLOAD" | jq -r '.properties.default_branch // ""' | xargs)
-          echo "DEFAULT_BRANCH_PAYLOAD=$DB_PAYLOAD" >> $GITHUB_ENV
           CUSTOM_PAYLOAD=$(echo "$PAYLOAD" | jq -c '.properties.custom_properties // {}')
-          echo "CUSTOM_PAYLOAD=$CUSTOM_PAYLOAD" >> $GITHUB_ENV
+          {
+            echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)"
+            echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)"
+            echo "REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)"
+            echo "REPO_NAME=$REPO_NAME"
+            echo "DESCRIPTION_PAYLOAD=$DESC_PAYLOAD"
+            echo "VISIBILITY_PAYLOAD=$VIS_PAYLOAD"
+            echo "HOMEPAGE_URL_PAYLOAD=$HOMEPAGE_PAYLOAD"
+            echo "TOPICS_PAYLOAD=$TOPICS_PAYLOAD"
+            echo "DELETE_BRANCH_ON_MERGE_PAYLOAD=$DBM_PAYLOAD"
+            echo "ENABLE_ISSUES_PAYLOAD=$ISSUES_PAYLOAD"
+            echo "ENABLE_WIKI_PAYLOAD=$WIKI_PAYLOAD"
+            echo "DEFAULT_BRANCH_PAYLOAD=$DB_PAYLOAD"
+            echo "CUSTOM_PAYLOAD=$CUSTOM_PAYLOAD"
+          } >> "$GITHUB_ENV"
+
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
 
       - name: Load existing manifest
         run: |
@@ -66,7 +81,7 @@ jobs:
           if [ ! -f "$MANIFEST_PATH" ]; then
             echo "Manifest $MANIFEST_PATH not found" >&2; exit 1; fi
           pip install pyyaml >/dev/null
-          python - <<'PY' >> $GITHUB_ENV
+          python - <<'PY' >> "$GITHUB_ENV"
             import os, json, yaml
             p=os.environ['MANIFEST_PATH']
             with open(p) as f:
@@ -95,45 +110,42 @@ jobs:
       - name: Compute desired state
         run: |
           set -e
-          DESCRIPTION="$DESCRIPTION_PAYLOAD"
-          [ -z "$DESCRIPTION" ] && DESCRIPTION="$EXISTING_DESCRIPTION"
-          echo "DESCRIPTION=$DESCRIPTION" >> $GITHUB_ENV
-          VISIBILITY="$VISIBILITY_PAYLOAD"
-          [ -z "$VISIBILITY" ] && VISIBILITY="$EXISTING_VISIBILITY"
-          echo "VISIBILITY=$VISIBILITY" >> $GITHUB_ENV
-          HOMEPAGE_URL="$HOMEPAGE_URL_PAYLOAD"
-          [ -z "$HOMEPAGE_URL" ] && HOMEPAGE_URL="$EXISTING_HOMEPAGE_URL"
-          echo "HOMEPAGE_URL=$HOMEPAGE_URL" >> $GITHUB_ENV
+          DESCRIPTION=${DESCRIPTION_PAYLOAD:-$EXISTING_DESCRIPTION}
+          VISIBILITY=${VISIBILITY_PAYLOAD:-$EXISTING_VISIBILITY}
+          HOMEPAGE_URL=${HOMEPAGE_URL_PAYLOAD:-$EXISTING_HOMEPAGE_URL}
           if [ -n "$HOMEPAGE_URL" ]; then
-            echo "HOMEPAGE_URL_JSON=\"$HOMEPAGE_URL\"" >> $GITHUB_ENV
+            HOMEPAGE_URL_JSON="\"$HOMEPAGE_URL\""
           else
-            echo "HOMEPAGE_URL_JSON=null" >> $GITHUB_ENV
+            HOMEPAGE_URL_JSON=null
           fi
           if [ -n "$TOPICS_PAYLOAD" ]; then
             TOPICS=$(echo "$TOPICS_PAYLOAD" | jq -c 'map(ascii_downcase)|unique')
           else
             TOPICS="$EXISTING_TOPICS"
           fi
-          echo "TOPICS_FINAL=$TOPICS" >> $GITHUB_ENV
-          DBM="$DELETE_BRANCH_ON_MERGE_PAYLOAD"
-          [ -z "$DBM" ] && DBM="$EXISTING_DELETE_BRANCH_ON_MERGE"
-          echo "DELETE_BRANCH_ON_MERGE=$DBM" >> $GITHUB_ENV
-          ISS="$ENABLE_ISSUES_PAYLOAD"
-          [ -z "$ISS" ] && ISS="$EXISTING_ENABLE_ISSUES"
-          echo "ENABLE_ISSUES=$ISS" >> $GITHUB_ENV
-          WIKI="$ENABLE_WIKI_PAYLOAD"
-          [ -z "$WIKI" ] && WIKI="$EXISTING_ENABLE_WIKI"
-          echo "ENABLE_WIKI=$WIKI" >> $GITHUB_ENV
-          DB="$DEFAULT_BRANCH_PAYLOAD"
-          [ -z "$DB" ] && DB="$EXISTING_DEFAULT_BRANCH"
-          echo "DEFAULT_BRANCH=$DB" >> $GITHUB_ENV
+          DBM=${DELETE_BRANCH_ON_MERGE_PAYLOAD:-$EXISTING_DELETE_BRANCH_ON_MERGE}
+          ISS=${ENABLE_ISSUES_PAYLOAD:-$EXISTING_ENABLE_ISSUES}
+          WIKI=${ENABLE_WIKI_PAYLOAD:-$EXISTING_ENABLE_WIKI}
+          DB=${DEFAULT_BRANCH_PAYLOAD:-$EXISTING_DEFAULT_BRANCH}
           if [ -n "$DB" ]; then
-            echo "DEFAULT_BRANCH_JSON=\"$DB\"" >> $GITHUB_ENV
+            DEFAULT_BRANCH_JSON="\"$DB\""
           else
-            echo "DEFAULT_BRANCH_JSON=null" >> $GITHUB_ENV
+            DEFAULT_BRANCH_JSON=null
           fi
           CUSTOM=$(jq -c -n --argjson existing "$EXISTING_CUSTOM" --argjson payload "$CUSTOM_PAYLOAD" '$existing + $payload')
-          echo "CUSTOM_FINAL=$CUSTOM" >> $GITHUB_ENV
+          {
+            echo "DESCRIPTION=$DESCRIPTION"
+            echo "VISIBILITY=$VISIBILITY"
+            echo "HOMEPAGE_URL=$HOMEPAGE_URL"
+            echo "HOMEPAGE_URL_JSON=$HOMEPAGE_URL_JSON"
+            echo "TOPICS_FINAL=$TOPICS"
+            echo "DELETE_BRANCH_ON_MERGE=$DBM"
+            echo "ENABLE_ISSUES=$ISS"
+            echo "ENABLE_WIKI=$WIKI"
+            echo "DEFAULT_BRANCH=$DB"
+            echo "DEFAULT_BRANCH_JSON=$DEFAULT_BRANCH_JSON"
+            echo "CUSTOM_FINAL=$CUSTOM"
+          } >> "$GITHUB_ENV"
 
       - name: Get GitHub App token
         id: app-token
@@ -146,12 +158,13 @@ jobs:
       - name: Ensure repository and branch exist
         run: |
           set -e
-          gh api repos/${GH_ORG}/${REPO_NAME} >/dev/null
+          gh api "repos/${GH_ORG}/${REPO_NAME}" >/dev/null
           if [ -n "${DEFAULT_BRANCH}" ]; then
-            gh api repos/${GH_ORG}/${REPO_NAME}/branches/${DEFAULT_BRANCH} >/dev/null
+            gh api "repos/${GH_ORG}/${REPO_NAME}/branches/${DEFAULT_BRANCH}" >/dev/null
           fi
 
       - name: Azure login
+        if: ${{ inputs.mock == 'false' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -159,6 +172,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform init
+        if: ${{ inputs.mock == 'false' }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -175,6 +189,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform plan and apply
+        if: ${{ inputs.mock == 'false' }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -184,7 +199,7 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           set -e
-            cat > payload.auto.tfvars.json <<VARS
+            cat > payload.auto.tfvars.json <<'VARS'
             {
               "org": "$GH_ORG",
               "repo_name": "$REPO_NAME",
@@ -197,34 +212,42 @@ jobs:
               "enable_wiki": $ENABLE_WIKI,
               "default_branch": $DEFAULT_BRANCH_JSON
             }
-            VARS
+          VARS
           terraform plan -out=tfplan -detailed-exitcode >/tmp/plan.log && code=$? || code=$?
           if [ $code -eq 2 ]; then
-            echo "TF_HAS_CHANGES=1" >> $GITHUB_ENV
+            TF_HAS_CHANGES=1
           elif [ $code -eq 0 ]; then
-            echo "TF_HAS_CHANGES=0" >> $GITHUB_ENV
+            TF_HAS_CHANGES=0
           else
             cat /tmp/plan.log
             exit $code
           fi
           terraform apply -auto-approve tfplan
           terraform output -json > tf.json
-          echo "REPO_ID=$(jq -r .repo_id.value tf.json)" >> $GITHUB_ENV
-          echo "HTML_URL=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
-          echo "SSH_URL=$(jq -r .ssh_url.value tf.json)" >> $GITHUB_ENV
-          echo "DEFAULT_BRANCH=$(jq -r .default_branch.value tf.json)" >> $GITHUB_ENV
+          {
+            echo "TF_HAS_CHANGES=$TF_HAS_CHANGES"
+            echo "REPO_ID=$(jq -r .repo_id.value tf.json)"
+            echo "HTML_URL=$(jq -r .html_url.value tf.json)"
+            echo "SSH_URL=$(jq -r .ssh_url.value tf.json)"
+            echo "DEFAULT_BRANCH=$(jq -r .default_branch.value tf.json)"
+          } >> "$GITHUB_ENV"
 
       - name: Compute change message
+        if: ${{ inputs.mock == 'false' }}
         run: |
           total=$TF_HAS_CHANGES
-          echo "CHANGES=$total" >> $GITHUB_ENV
           if [ "$total" -eq 0 ]; then
-            echo "PORT_MESSAGE=no-op (already up to date)" >> $GITHUB_ENV
+            PORT_MESSAGE="no-op (already up to date)"
           else
-            echo "PORT_MESSAGE=repository updated" >> $GITHUB_ENV
+            PORT_MESSAGE="repository updated"
           fi
+          {
+            echo "CHANGES=$total"
+            echo "PORT_MESSAGE=$PORT_MESSAGE"
+          } >> "$GITHUB_ENV"
 
       - name: Upsert entity to Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -247,10 +270,11 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Update manifest
+        if: ${{ inputs.mock == 'false' }}
         run: |
           set -e
           pip install pyyaml >/dev/null
-          python - <<'PY' >> $GITHUB_ENV
+          python - <<'PY' >> "$GITHUB_ENV"
             import os, yaml, json, datetime
             repo=os.environ['REPO_NAME']
             path=f"repositories/manifests/{repo}.yaml"
@@ -293,13 +317,14 @@ jobs:
           PY
 
       - name: Commit manifest
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.MANIFEST }}
           message: Update repository '${{ env.REPO_NAME }}' (automated via Port)
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}

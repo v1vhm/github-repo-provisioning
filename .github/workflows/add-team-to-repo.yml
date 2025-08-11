@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Grant team access to repository
 
 on:
@@ -7,6 +10,11 @@ on:
         description: "Port JSON payload"
         required: true
         type: string
+      mock:
+        description: "Run in mock mode, skipping side effects"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -42,15 +50,23 @@ jobs:
             echo "mirror_on_team_manifest must be boolean" >&2; exit 1
           fi
           NOTE=$(echo "$PAYLOAD" | jq -r '.properties.note // ""')
-          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
-          echo "BLUEPRINT=$BLUEPRINT" >> $GITHUB_ENV
-          echo "REQUESTED_BY=$REQUESTED_BY" >> $GITHUB_ENV
-          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
-          echo "TEAM_SLUG=$TEAM_SLUG" >> $GITHUB_ENV
-          echo "PERMISSION=$PERMISSION" >> $GITHUB_ENV
-          echo "MIRROR=$MIRROR" >> $GITHUB_ENV
-          echo "NOTE=$NOTE" >> $GITHUB_ENV
-          echo "NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          {
+            echo "RUN_ID=$RUN_ID"
+            echo "BLUEPRINT=$BLUEPRINT"
+            echo "REQUESTED_BY=$REQUESTED_BY"
+            echo "REPO_NAME=$REPO_NAME"
+            echo "TEAM_SLUG=$TEAM_SLUG"
+            echo "PERMISSION=$PERMISSION"
+            echo "MIRROR=$MIRROR"
+            echo "NOTE=$NOTE"
+            echo "NOW=$NOW"
+          } >> "$GITHUB_ENV"
+
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
 
       - name: Get GitHub App token
         id: app-token
@@ -67,8 +83,7 @@ jobs:
           if [ "$(echo "$repo_resp" | jq -r .archived)" = "true" ]; then
             echo "Repository ${REPO_NAME} is archived" >&2; exit 1; fi
           gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}" >/dev/null 2>&1 || { echo "Team ${TEAM_SLUG} not found" >&2; exit 1; }
-          current=$(gh api "repos/${GH_ORG}/${REPO_NAME}/teams" -q '.[] | select(.slug=="'${TEAM_SLUG}'") | .permission' || true)
-          echo "CURRENT_PERMISSION=$current" >> $GITHUB_ENV
+            current=$(gh api "repos/${GH_ORG}/${REPO_NAME}/teams" -q ".[] | select(.slug==\"${TEAM_SLUG}\") | .permission" || true)
           ranks='{ "pull":1, "triage":2, "push":3, "maintain":4, "admin":5 }'
           req_rank=$(echo "$ranks" | jq -r ".[\"$PERMISSION\"]")
           cur_rank=$(echo "$ranks" | jq -r ".[\"$current\"] // 0")
@@ -80,10 +95,13 @@ jobs:
               action="upgrade"
             fi
           fi
-          echo "ACTION=$action" >> $GITHUB_ENV
+            {
+              echo "CURRENT_PERMISSION=$current"
+              echo "ACTION=$action"
+            } >> "$GITHUB_ENV"
 
       - name: Apply permission
-        if: env.ACTION != 'noop'
+        if: ${{ inputs.mock == 'false' && env.ACTION != 'noop' }}
         run: |
           for i in 1 2; do
             if gh api --method PUT "/orgs/${GH_ORG}/teams/${TEAM_SLUG}/repos/${GH_ORG}/${REPO_NAME}" -f permission="${PERMISSION}"; then
@@ -93,34 +111,39 @@ jobs:
             else
               sleep 5
             fi
-          done
+            done
 
       - name: Verify permission
+        if: ${{ inputs.mock == 'false' }}
         run: |
-          final=$(gh api "repos/${GH_ORG}/${REPO_NAME}/teams" -q '.[] | select(.slug=="'${TEAM_SLUG}'") | .permission' || true)
-          if [ -z "$final" ]; then
-            echo "Failed to read final permission" >&2; exit 1; fi
-          echo "FINAL_PERMISSION=$final" >> $GITHUB_ENV
-          case "$ACTION" in
-            create) msg="granted ${PERMISSION}";;
-            upgrade) msg="upgraded to ${PERMISSION}";;
-            noop) msg="no-op (current $final)";;
-          esac
-          echo "PORT_MESSAGE=$msg" >> $GITHUB_ENV
+            final=$(gh api "repos/${GH_ORG}/${REPO_NAME}/teams" -q ".[] | select(.slug==\"${TEAM_SLUG}\") | .permission" || true)
+            if [ -z "$final" ]; then
+              echo "Failed to read final permission" >&2; exit 1; fi
+            case "$ACTION" in
+              create) msg="granted ${PERMISSION}";;
+              upgrade) msg="upgraded to ${PERMISSION}";;
+              noop) msg="no-op (current $final)";;
+            esac
+            {
+              echo "FINAL_PERMISSION=$final"
+              echo "PORT_MESSAGE=$msg"
+            } >> "$GITHUB_ENV"
 
       - name: Build commit message
+        if: ${{ inputs.mock == 'false' }}
         run: |
           msg="Grant team '${TEAM_SLUG}' '${FINAL_PERMISSION}' on repo '${REPO_NAME}' (via Port)"
           if [ -n "$NOTE" ]; then
             msg="$msg - $NOTE"
           fi
-          echo "COMMIT_MESSAGE=$msg" >> $GITHUB_ENV
+          echo "COMMIT_MESSAGE=$msg" >> "$GITHUB_ENV"
 
       - name: Update manifests
+        if: ${{ inputs.mock == 'false' }}
         run: |
           set -euo pipefail
           pip install pyyaml >/dev/null
-          python - <<'PY' >> $GITHUB_ENV
+          python - <<'PY' >> "$GITHUB_ENV"
           import os, json, yaml, importlib.util
           spec = importlib.util.spec_from_file_location('mu', 'scripts/manifest-utils.py')
           mu = importlib.util.module_from_spec(spec); spec.loader.exec_module(mu)
@@ -145,6 +168,7 @@ jobs:
           PY
 
       - name: Upsert entity to Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -160,17 +184,18 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Stage team manifest
-        if: env.MIRROR == 'true' && env.TEAM_CHANGED == '1'
+        if: ${{ inputs.mock == 'false' && env.MIRROR == 'true' && env.TEAM_CHANGED == '1' }}
         run: git add "${{ env.TEAM_MANIFEST }}"
 
       - name: Commit manifest(s)
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.REPO_MANIFEST }}
           message: ${{ env.COMMIT_MESSAGE }}
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}

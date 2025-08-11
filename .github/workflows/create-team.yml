@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Create GitHub team
 
 on:
@@ -7,6 +10,11 @@ on:
         description: "Port JSON payload"
         required: true
         type: string
+      mock:
+        description: "Run in mock mode, skipping side effects"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -28,38 +36,47 @@ jobs:
       - name: Parse payload
         id: parse
         run: |
-          echo '${{ inputs.port_payload }}' | jq -e '.runId,.blueprint,.properties.team_name,.properties.privacy' >/dev/null
-          TEAM_NAME=$(echo '${{ inputs.port_payload }}' | jq -r .properties.team_name)
-          PRIVACY=$(echo '${{ inputs.port_payload }}' | jq -r .properties.privacy)
+          PAYLOAD='${{ inputs.port_payload }}'
+          echo "$PAYLOAD" | jq -e '.runId,.blueprint,.properties.team_name,.properties.privacy' >/dev/null
+          TEAM_NAME=$(echo "$PAYLOAD" | jq -r .properties.team_name)
+          PRIVACY=$(echo "$PAYLOAD" | jq -r .properties.privacy)
           if [[ "$PRIVACY" != "closed" && "$PRIVACY" != "secret" ]]; then
             echo "Invalid privacy: $PRIVACY" >&2
             exit 1
           fi
-          DESCRIPTION=$(echo '${{ inputs.port_payload }}' | jq -r '.properties.description // ""')
-          PARENT=$(echo '${{ inputs.port_payload }}' | jq -r '.properties.parent_team_slug // ""')
-          MEMBERS=$(echo '${{ inputs.port_payload }}' | jq -c '.properties.members // []')
-          ALIASES=$(echo '${{ inputs.port_payload }}' | jq -c '.properties.alias_slugs // []')
-          RUN_ID=$(echo '${{ inputs.port_payload }}' | jq -r .runId)
-          BLUEPRINT=$(echo '${{ inputs.port_payload }}' | jq -r .blueprint)
-          REQUESTED_BY=$(echo '${{ inputs.port_payload }}' | jq -r .requestedBy)
-
+          DESCRIPTION=$(echo "$PAYLOAD" | jq -r '.properties.description // ""')
+          PARENT=$(echo "$PAYLOAD" | jq -r '.properties.parent_team_slug // ""')
+          MEMBERS=$(echo "$PAYLOAD" | jq -c '.properties.members // []')
+          ALIASES=$(echo "$PAYLOAD" | jq -c '.properties.alias_slugs // []')
+          RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)
+          BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)
+          REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)
           SLUG=$(echo "$TEAM_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g;s/^-+//;s/-+$//;s/-{2,}/-/g')
-          echo "TEAM_NAME=$TEAM_NAME" >> $GITHUB_ENV
-          echo "TEAM_SLUG=$SLUG" >> $GITHUB_ENV
-          echo "PRIVACY=$PRIVACY" >> $GITHUB_ENV
-          echo "DESCRIPTION=$DESCRIPTION" >> $GITHUB_ENV
-          echo "PARENT_TEAM_SLUG=$PARENT" >> $GITHUB_ENV
-          echo "MEMBERS=$MEMBERS" >> $GITHUB_ENV
-          echo "ALIASES=$ALIASES" >> $GITHUB_ENV
-          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
-          echo "BLUEPRINT=$BLUEPRINT" >> $GITHUB_ENV
-          echo "REQUESTED_BY=$REQUESTED_BY" >> $GITHUB_ENV
-          echo "CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+          CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           if [[ -n "$PARENT" ]]; then
-            echo "PARENT_REL=\"$PARENT\"" >> $GITHUB_ENV
+            PARENT_REL="\"$PARENT\""
           else
-            echo "PARENT_REL=null" >> $GITHUB_ENV
+            PARENT_REL=null
           fi
+          {
+            echo "TEAM_NAME=$TEAM_NAME"
+            echo "TEAM_SLUG=$SLUG"
+            echo "PRIVACY=$PRIVACY"
+            echo "DESCRIPTION=$DESCRIPTION"
+            echo "PARENT_TEAM_SLUG=$PARENT"
+            echo "MEMBERS=$MEMBERS"
+            echo "ALIASES=$ALIASES"
+            echo "RUN_ID=$RUN_ID"
+            echo "BLUEPRINT=$BLUEPRINT"
+            echo "REQUESTED_BY=$REQUESTED_BY"
+            echo "CREATED_AT=$CREATED_AT"
+            echo "PARENT_REL=$PARENT_REL"
+          } >> "$GITHUB_ENV"
+
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
 
       - name: Get GitHub App token
         id: app-token
@@ -98,39 +115,24 @@ jobs:
               skipped="$skipped $username"
             fi
           done
-          echo "TF_MEMBERS=$existing" >> $GITHUB_ENV
-          if [[ -n "$skipped" ]]; then
-            echo "PORT_MESSAGE=Skipped members:$skipped" >> $GITHUB_ENV
-          fi
+          {
+            echo "TF_MEMBERS=$existing"
+            if [[ -n "$skipped" ]]; then
+              echo "PORT_MESSAGE=Skipped members:$skipped"
+            fi
+          } >> "$GITHUB_ENV"
 
       - name: Draft manifest
         run: |
           mkdir -p teams/manifests
           members_block=$(echo "$TF_MEMBERS" | jq -r '.[] | "- username: \(.username)\n  role: \(.role)"')
           aliases_block=$(echo "$ALIASES" | jq -r '.[] | "- \(.)"')
-          cat > teams/manifests/${TEAM_SLUG}.yaml <<MANIFEST
-            apiVersion: v1
-            kind: GitHubTeam
-            metadata:
-              name: "$TEAM_NAME"
-              slug: "$TEAM_SLUG"
-              createdAt: "$CREATED_AT"
-              createdBy: "$REQUESTED_BY"
-            spec:
-              description: "$DESCRIPTION"
-              privacy: "$PRIVACY"
-              parent:
-                slug: "${PARENT_TEAM_SLUG:-null}"
-              members:
-              $(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
-              aliases:
-              $(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
-            status:
-              phase: creating
-            MANIFEST
-          echo "MANIFEST=teams/manifests/${TEAM_SLUG}.yaml" >> $GITHUB_ENV
+          members_formatted=$(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
+          aliases_formatted=$(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
+          scripts/draft-team-manifest.sh "$TEAM_SLUG" "$TEAM_NAME" "$CREATED_AT" "$REQUESTED_BY" "$DESCRIPTION" "$PRIVACY" "$PARENT_TEAM_SLUG" "$members_formatted" "$aliases_formatted"
 
       - name: Azure login
+        if: ${{ inputs.mock == 'false' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -138,6 +140,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform init
+        if: ${{ inputs.mock == 'false' }}
         working-directory: teams/modules/team
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -154,6 +157,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform apply
+        if: ${{ inputs.mock == 'false' }}
         working-directory: teams/modules/team
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -172,10 +176,13 @@ jobs:
             -var "description=$DESCRIPTION" \
             -var "parent_team_slug=$PARENT_TEAM_SLUG"
           terraform output -json > tf.json
-          echo "TEAM_ID=$(jq -r .team_id.value tf.json)" >> $GITHUB_ENV
-          echo "HTML_URL=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
+          {
+            echo "TEAM_ID=$(jq -r .team_id.value tf.json)"
+            echo "HTML_URL=$(jq -r .html_url.value tf.json)"
+          } >> "$GITHUB_ENV"
 
       - name: Upsert entity to Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -201,40 +208,42 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Finalize manifest
+        if: ${{ inputs.mock == 'false' }}
         run: |
           members_block=$(echo "$TF_MEMBERS" | jq -r '.[] | "- username: \(.username)\n  role: \(.role)"')
           aliases_block=$(echo "$ALIASES" | jq -r '.[] | "- \(.)"')
           cat > "$MANIFEST" <<MANIFEST
-            apiVersion: v1
-            kind: GitHubTeam
-            metadata:
-              name: "$TEAM_NAME"
-              slug: "$TEAM_SLUG"
-              createdAt: "$CREATED_AT"
-              createdBy: "$REQUESTED_BY"
-            spec:
-              description: "$DESCRIPTION"
-              privacy: "$PRIVACY"
-              parent:
-                slug: "${PARENT_TEAM_SLUG:-null}"
-              members:
-              $(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
-              aliases:
-              $(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
-            status:
-              id: "$TEAM_ID"
-              htmlUrl: "$HTML_URL"
-              phase: active
-            MANIFEST
+          apiVersion: v1
+          kind: GitHubTeam
+          metadata:
+            name: "$TEAM_NAME"
+            slug: "$TEAM_SLUG"
+            createdAt: "$CREATED_AT"
+            createdBy: "$REQUESTED_BY"
+          spec:
+            description: "$DESCRIPTION"
+            privacy: "$PRIVACY"
+            parent:
+              slug: "${PARENT_TEAM_SLUG:-null}"
+            members:
+            $(if [ -n "$members_block" ]; then echo "$members_block" | sed 's/^/    /'; else echo "    []"; fi)
+            aliases:
+            $(if [ -n "$aliases_block" ]; then echo "$aliases_block" | sed 's/^/    /'; else echo "    []"; fi)
+          status:
+            id: "$TEAM_ID"
+            htmlUrl: "$HTML_URL"
+            phase: active
+          MANIFEST
 
       - name: Commit manifest
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.MANIFEST }}
           message: Add team '${{ env.TEAM_SLUG }}' (automated via Port)
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -245,7 +254,7 @@ jobs:
           logMessage: 'Workflow failed'
 
       - name: Mark manifest failed
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         run: |
           if [ -f "$MANIFEST" ]; then
             sed -i 's/phase: creating/phase: failed/' "$MANIFEST"

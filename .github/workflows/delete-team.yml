@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Delete GitHub team
 
 on:
@@ -7,6 +10,11 @@ on:
         description: "Port JSON payload"
         required: true
         type: string
+      mock:
+        description: "Run in mock mode, skipping side effects"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -37,17 +45,25 @@ jobs:
           RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)
           BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)
           REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)
-          TEAM_SLUG=$(echo "$PAYLOAD" | jq -r .properties.team_slug | tr 'A-Z' 'a-z' | xargs)
+          TEAM_SLUG=$(echo "$PAYLOAD" | jq -r .properties.team_slug | tr '[:upper:]' '[:lower:]' | xargs)
           FORCE=$(echo "$PAYLOAD" | jq -r '.properties.force // false')
           NOTE=$(echo "$PAYLOAD" | jq -r '.properties.note // ""')
           if [[ -z "$TEAM_SLUG" ]]; then echo "team_slug required" >&2; exit 1; fi
-          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
-          echo "BLUEPRINT=$BLUEPRINT" >> $GITHUB_ENV
-          echo "REQUESTED_BY=$REQUESTED_BY" >> $GITHUB_ENV
-          echo "TEAM_SLUG=$TEAM_SLUG" >> $GITHUB_ENV
-          echo "FORCE=$FORCE" >> $GITHUB_ENV
-          echo "NOTE=$NOTE" >> $GITHUB_ENV
-          echo "NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          {
+            echo "RUN_ID=$RUN_ID"
+            echo "BLUEPRINT=$BLUEPRINT"
+            echo "REQUESTED_BY=$REQUESTED_BY"
+            echo "TEAM_SLUG=$TEAM_SLUG"
+            echo "FORCE=$FORCE"
+            echo "NOTE=$NOTE"
+            echo "NOW=$NOW"
+          } >> "$GITHUB_ENV"
+
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
 
       - name: Get GitHub App token
         id: app-token
@@ -58,6 +74,7 @@ jobs:
           installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
 
       - name: Azure login
+        if: ${{ inputs.mock == 'false' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -67,10 +84,10 @@ jobs:
       - name: Discover existence
         run: |
           set -euo pipefail
+          TEAM_NAME=""
           if gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}" >/tmp/team.json 2>/tmp/team.err; then
             TEAM_EXISTS=true
             TEAM_NAME=$(jq -r .name /tmp/team.json)
-            echo "TEAM_NAME=$TEAM_NAME" >> $GITHUB_ENV
             repos=$(gh api --paginate "/orgs/${GH_ORG}/teams/${TEAM_SLUG}/repos" -q '.[].name') || true
             if [[ -n "$repos" && "$FORCE" != "true" ]]; then
               echo "Warning: team has repo access: $repos" >&2
@@ -82,17 +99,21 @@ jobs:
               cat /tmp/team.err >&2; exit 1
             fi
           fi
-          echo "TEAM_EXISTS=$TEAM_EXISTS" >> $GITHUB_ENV
-          state=$(az storage blob exists --account-name ${{ secrets.AZURE_STORAGE_ACCOUNT }} --container-name ${{ secrets.AZURE_STORAGE_CONTAINER }} --name teams/${TEAM_SLUG}.tfstate --auth-mode login -o tsv --query exists)
-          echo "STATE_EXISTS=$state" >> $GITHUB_ENV
+          state=$(az storage blob exists --account-name "${{ secrets.AZURE_STORAGE_ACCOUNT }}" --container-name "${{ secrets.AZURE_STORAGE_CONTAINER }}" --name "teams/${TEAM_SLUG}.tfstate" --auth-mode login -o tsv --query exists)
           if [[ "$TEAM_EXISTS" != "true" && "$state" != "true" ]]; then
-            echo "MODE=no-op" >> $GITHUB_ENV
+            MODE=no-op
           else
-            echo "MODE=destroy" >> $GITHUB_ENV
+            MODE=destroy
           fi
+          {
+            [ -n "$TEAM_NAME" ] && echo "TEAM_NAME=$TEAM_NAME"
+            echo "TEAM_EXISTS=$TEAM_EXISTS"
+            echo "STATE_EXISTS=$state"
+            echo "MODE=$MODE"
+          } >> "$GITHUB_ENV"
 
       - name: Terraform destroy
-        if: env.MODE == 'destroy'
+        if: ${{ inputs.mock == 'false' && env.MODE == 'destroy' }}
         working-directory: teams/modules/team
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -110,19 +131,21 @@ jobs:
             -backend-config="use_azuread_auth=true"
           NAME=${TEAM_NAME:-$TEAM_SLUG}
           for i in 1 2; do
-            terraform destroy -auto-approve \
+            if terraform destroy -auto-approve \
               -var "org=$GH_ORG" \
               -var "team_slug=$TEAM_SLUG" \
               -var "team_name=$NAME" \
               -var "privacy=closed" \
               -var "description=" \
-              -var "parent_team_slug=" && break || true
+              -var "parent_team_slug="; then
+              break
+            fi
             if [ "$i" -eq 2 ]; then exit 1; fi
             sleep 5
           done
 
       - name: Verify deletion
-        if: env.MODE == 'destroy'
+        if: ${{ inputs.mock == 'false' && env.MODE == 'destroy' }}
         run: |
           set -e
           if gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}" >/dev/null 2>&1; then
@@ -136,14 +159,15 @@ jobs:
             msg="team deleted via Terraform"
           fi
           if [ -n "$NOTE" ]; then msg="$msg - $NOTE"; fi
-          echo "PORT_MESSAGE=$msg" >> $GITHUB_ENV
+          echo "PORT_MESSAGE=$msg" >> "$GITHUB_ENV"
 
       - name: Clean manifests
+        if: ${{ inputs.mock == 'false' }}
         id: manifests
         run: |
           set -euo pipefail
           pip install pyyaml >/dev/null
-          slug="$TEAM_SLUG"; ts="$NOW"
+          slug="$TEAM_SLUG"
           removed=false
           if [ -f "teams/manifests/${slug}.yaml" ]; then
             git rm -f "teams/manifests/${slug}.yaml"
@@ -168,31 +192,35 @@ jobs:
                   updates.append({'name':os.path.splitext(os.path.basename(path))[0],'teams':[t.get('slug') for t in new]})
           print(json.dumps({'changed':changed,'updates':updates}))
           PY
-          for p in $(jq -r '.changed[]' repo_updates.json); do git add "$p"; done
-          echo "repos=$(jq -c '.updates' repo_updates.json)" >> $GITHUB_OUTPUT
-          echo "team_removed=$removed" >> $GITHUB_OUTPUT
+          jq -r '.changed[]' repo_updates.json | while read -r p; do git add "$p"; done
+          echo "repos=$(jq -c '.updates' repo_updates.json)" >> "$GITHUB_OUTPUT"
+          echo "team_removed=$removed" >> "$GITHUB_OUTPUT"
 
       - name: Determine commit path
+        if: ${{ inputs.mock == 'false' }}
         run: |
           path="repositories/manifests"
           if [ "${{ steps.manifests.outputs.repos }}" = "[]" ]; then
             path="teams/manifests"
           fi
-          echo "COMMIT_PATH=$path" >> $GITHUB_ENV
+          echo "COMMIT_PATH=$path" >> "$GITHUB_ENV"
 
       - name: Build commit message
+        if: ${{ inputs.mock == 'false' }}
         run: |
           msg="Delete team '${TEAM_SLUG}' via Terraform (Port)"
           if [ -n "$NOTE" ]; then msg="$msg - $NOTE"; fi
-          echo "COMMIT_MSG=$msg" >> $GITHUB_ENV
+          echo "COMMIT_MSG=$msg" >> "$GITHUB_ENV"
 
       - name: Commit manifests
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.COMMIT_PATH }}
           message: ${{ env.COMMIT_MSG }}
 
       - name: Delete team in Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -205,7 +233,7 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -217,7 +245,7 @@ jobs:
 
   update-port-repos:
     needs: delete
-    if: needs.delete.outputs.repos != '[]'
+    if: ${{ inputs.mock == 'false' && needs.delete.outputs.repos != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:

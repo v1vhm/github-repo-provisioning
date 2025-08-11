@@ -1,3 +1,6 @@
+# Inputs:
+#   port_payload: Port JSON payload
+#   mock: When true, skip side-effecting steps (default: false)
 name: Create repository from template
 
 on:
@@ -7,6 +10,11 @@ on:
         description: 'Port JSON payload'
         required: true
         type: string
+      mock:
+        description: 'Run in mock mode, skipping side effects'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -28,18 +36,26 @@ jobs:
       - name: Parse payload
         id: parse
         run: |
-          echo '${{ inputs.port_payload }}' | jq -e '.runId,.properties.repo_name,.properties.description,.properties.visibility,.properties.owner_team_slug,.properties.owner_team_permission,.properties.cookiecutter_template,.properties.cookiecutter_context' >/dev/null
-          echo "RUN_ID=$(echo '${{ inputs.port_payload }}' | jq -r .runId)" >> $GITHUB_ENV
-          echo "BLUEPRINT=$(echo '${{ inputs.port_payload }}' | jq -r .blueprint)" >> $GITHUB_ENV
-          echo "REQUESTED_BY=$(echo '${{ inputs.port_payload }}' | jq -r .requestedBy)" >> $GITHUB_ENV
-          echo "REPO_NAME=$(echo '${{ inputs.port_payload }}' | jq -r .properties.repo_name)" >> $GITHUB_ENV
-          echo "DESCRIPTION=$(echo '${{ inputs.port_payload }}' | jq -r .properties.description)" >> $GITHUB_ENV
-          echo "VISIBILITY=$(echo '${{ inputs.port_payload }}' | jq -r .properties.visibility)" >> $GITHUB_ENV
-          echo "OWNER_TEAM_SLUG=$(echo '${{ inputs.port_payload }}' | jq -r .properties.owner_team_slug)" >> $GITHUB_ENV
-          echo "OWNER_TEAM_PERMISSION=$(echo '${{ inputs.port_payload }}' | jq -r .properties.owner_team_permission)" >> $GITHUB_ENV
-          echo "COOKIECUTTER_TEMPLATE=$(echo '${{ inputs.port_payload }}' | jq -r .properties.cookiecutter_template)" >> $GITHUB_ENV
-          echo "COOKIECUTTER_CONTEXT=$(echo '${{ inputs.port_payload }}' | jq -c .properties.cookiecutter_context)" >> $GITHUB_ENV
-          echo "CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+          PAYLOAD='${{ inputs.port_payload }}'
+          echo "$PAYLOAD" | jq -e '.runId,.properties.repo_name,.properties.description,.properties.visibility,.properties.owner_team_slug,.properties.owner_team_permission,.properties.cookiecutter_template,.properties.cookiecutter_context' >/dev/null
+          {
+            echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)"
+            echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)"
+            echo "REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)"
+            echo "REPO_NAME=$(echo "$PAYLOAD" | jq -r .properties.repo_name)"
+            echo "DESCRIPTION=$(echo "$PAYLOAD" | jq -r .properties.description)"
+            echo "VISIBILITY=$(echo "$PAYLOAD" | jq -r .properties.visibility)"
+            echo "OWNER_TEAM_SLUG=$(echo "$PAYLOAD" | jq -r .properties.owner_team_slug)"
+            echo "OWNER_TEAM_PERMISSION=$(echo "$PAYLOAD" | jq -r .properties.owner_team_permission)"
+            echo "COOKIECUTTER_TEMPLATE=$(echo "$PAYLOAD" | jq -r .properties.cookiecutter_template)"
+            echo "COOKIECUTTER_CONTEXT=$(echo "$PAYLOAD" | jq -c .properties.cookiecutter_context)"
+            echo "CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_ENV"
+
+      - name: Mock run notice
+        if: ${{ inputs.mock == 'true' }}
+        run: |
+          echo "Mock run: skipping side-effecting steps"
 
       - name: Get GitHub App token
         id: app-token
@@ -56,29 +72,30 @@ jobs:
         run: |
           mkdir -p repositories/manifests
           context_lines=$(echo "$COOKIECUTTER_CONTEXT" | jq -r 'to_entries[] | "      \(.key): \"\(.value)\""')
-            cat > repositories/manifests/$REPO_NAME.yaml <<MANIFEST
-            apiVersion: v1
-            kind: GitHubRepository
-            metadata:
-              name: $REPO_NAME
-              createdAt: "$CREATED_AT"
-              createdBy: "$REQUESTED_BY"
-            spec:
-              description: "$DESCRIPTION"
-              visibility: "$VISIBILITY"
-              ownerTeam:
-                slug: "$OWNER_TEAM_SLUG"
-                permission: "$OWNER_TEAM_PERMISSION"
-              template:
-                source: "$COOKIECUTTER_TEMPLATE"
-                context:
-                $context_lines
-            status:
-              phase: creating
-            MANIFEST
-          echo "MANIFEST=repositories/manifests/$REPO_NAME.yaml" >> $GITHUB_ENV
+          cat > "repositories/manifests/${REPO_NAME}.yaml" <<MANIFEST
+          apiVersion: v1
+          kind: GitHubRepository
+          metadata:
+            name: $REPO_NAME
+            createdAt: "$CREATED_AT"
+            createdBy: "$REQUESTED_BY"
+          spec:
+            description: "$DESCRIPTION"
+            visibility: "$VISIBILITY"
+            ownerTeam:
+              slug: "$OWNER_TEAM_SLUG"
+              permission: "$OWNER_TEAM_PERMISSION"
+            template:
+              source: "$COOKIECUTTER_TEMPLATE"
+              context:
+          ${context_lines}
+          status:
+            phase: creating
+          MANIFEST
+                    echo "MANIFEST=repositories/manifests/${REPO_NAME}.yaml" >> "$GITHUB_ENV"
 
       - name: Azure login
+        if: ${{ inputs.mock == 'false' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -86,6 +103,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform init
+        if: ${{ inputs.mock == 'false' }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -102,6 +120,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform apply
+        if: ${{ inputs.mock == 'false' }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -118,12 +137,15 @@ jobs:
             -var "owner_team_slug=$OWNER_TEAM_SLUG" \
             -var "owner_perm=$OWNER_TEAM_PERMISSION"
           terraform output -json > tf.json
-          echo "repo_id=$(jq -r .repo_id.value tf.json)" >> $GITHUB_ENV
-          echo "html_url=$(jq -r .html_url.value tf.json)" >> $GITHUB_ENV
-          echo "ssh_url=$(jq -r .ssh_url.value tf.json)" >> $GITHUB_ENV
-          echo "repo_created=true" >> $GITHUB_ENV
+          {
+            echo "repo_id=$(jq -r .repo_id.value tf.json)"
+            echo "html_url=$(jq -r .html_url.value tf.json)"
+            echo "ssh_url=$(jq -r .ssh_url.value tf.json)"
+            echo "repo_created=true"
+          } >> "$GITHUB_ENV"
 
       - name: Scaffold repository
+        if: ${{ inputs.mock == 'false' }}
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
         run: |
@@ -140,6 +162,7 @@ jobs:
           git push origin main
 
       - name: Upsert entity to Port
+        if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -163,40 +186,42 @@ jobs:
           status: success
 
       - name: Finalize manifest
+        if: ${{ inputs.mock == 'false' }}
         run: |
           context_lines=$(echo "$COOKIECUTTER_CONTEXT" | jq -r 'to_entries[] | "      \(.key): \"\(.value)\""')
-            cat > "$MANIFEST" <<MANIFEST
-            apiVersion: v1
-            kind: GitHubRepository
-            metadata:
-              name: $REPO_NAME
-              createdAt: "$CREATED_AT"
-              createdBy: "$REQUESTED_BY"
-            spec:
-              description: "$DESCRIPTION"
-              visibility: "$VISIBILITY"
-              ownerTeam:
-                slug: "$OWNER_TEAM_SLUG"
-                permission: "$OWNER_TEAM_PERMISSION"
-              template:
-                source: "$COOKIECUTTER_TEMPLATE"
-                context:
-                $context_lines
-            status:
-              id: "$repo_id"
-              htmlUrl: "$html_url"
-              sshUrl: "$ssh_url"
-              phase: active
-            MANIFEST
+          cat > "$MANIFEST" <<MANIFEST
+          apiVersion: v1
+          kind: GitHubRepository
+          metadata:
+            name: $REPO_NAME
+            createdAt: "$CREATED_AT"
+            createdBy: "$REQUESTED_BY"
+          spec:
+            description: "$DESCRIPTION"
+            visibility: "$VISIBILITY"
+            ownerTeam:
+              slug: "$OWNER_TEAM_SLUG"
+              permission: "$OWNER_TEAM_PERMISSION"
+            template:
+              source: "$COOKIECUTTER_TEMPLATE"
+              context:
+          $context_lines
+          status:
+            id: "$repo_id"
+            htmlUrl: "$html_url"
+            sshUrl: "$ssh_url"
+            phase: active
+          MANIFEST
 
       - name: Commit manifest
+        if: ${{ inputs.mock == 'false' }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.MANIFEST }}
           message: Add repository '${{ env.REPO_NAME }}' (automated via Port)
 
       - name: Report failure to Port
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         uses: port-labs/port-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -207,7 +232,7 @@ jobs:
           logMessage: 'Workflow failed'
 
       - name: Mark manifest failed
-        if: failure()
+        if: ${{ failure() && inputs.mock == 'false' }}
         run: |
           if [ -f "$MANIFEST" ]; then
             sed -i 's/phase: creating/phase: failed/' "$MANIFEST"

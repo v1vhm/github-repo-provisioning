@@ -40,3 +40,26 @@ the following in the repository settings before running the workflows:
 Currently none are required, but repository variables can be added for
 non‑sensitive configuration.
 
+## Local testing and CI
+
+Sample Port payloads live under `tests/payloads/` for running workflows
+locally with [`act`](https://github.com/nektos/act). The companion
+`tests/README.md` explains how to execute workflows with these payloads
+and how to run a mock invocation using `--dryrun`.
+
+CI enforces [`actionlint`](https://github.com/rhysd/actionlint),
+[`tflint`](https://github.com/terraform-linters/tflint), and
+`terraform validate` on all modules. Run these checks locally before
+submitting changes:
+
+```bash
+actionlint
+terraform -chdir=repositories/modules/repo init -backend=false
+terraform -chdir=repositories/modules/repo validate
+tflint --chdir repositories/modules/repo
+terraform -chdir=teams/modules/team init -backend=false
+terraform -chdir=teams/modules/team validate
+tflint --chdir teams/modules/team
+```
+
+

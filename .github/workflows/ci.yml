@@ -28,6 +28,7 @@ jobs:
         directory:
           - repositories/modules/repo
           - teams/modules/team
+          - modules/github-initial-config
           - repositories
           - teams
     steps:

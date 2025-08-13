@@ -171,7 +171,18 @@ jobs:
           git clone "$COOKIECUTTER_TEMPLATE" template-repo
           mkdir tf-config
           yq -o=json template-repo/.provisioning/repository-config.yml > tf-config/config.json
-          jq --argjson s "$GH_SECRETS" '[.secrets // [] | .[] | select(.source=="workflow_secret") | {key: .name, value: $s[.ref]}] | from_entries' tf-config/config.json > tf-config/secret-values.json
+          # Build a map of secret names to values. Each item in the config's
+          # `secrets` array specifies a `ref` pointing either to a workflow
+          # secret (`source: workflow_secret`) or an environment variable
+          # (`source: env`).
+          jq --argjson s "$GH_SECRETS" '
+            [.secrets // [] | .[] | select(.source != "none") |
+              {key: .name,
+               value: (if .source == "workflow_secret"
+                       then $s[.ref]         # look up workflow secret
+                       else env[.ref]        # read env var by name
+                      end)}] | from_entries
+          ' tf-config/config.json > tf-config/secret-values.json
           cat > tf-config/main.tf <<'TF'
           terraform {
             required_providers {

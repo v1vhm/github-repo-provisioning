@@ -181,6 +181,11 @@ jobs:
             echo "HTML_URL=$(jq -r .html_url.value tf.json)"
           } >> "$GITHUB_ENV"
 
+      - name: Cleanup Terraform
+        if: ${{ always() && inputs.mock == 'false' }}
+        working-directory: teams/modules/team
+        run: rm -rf .terraform terraform.tfstate*
+
       - name: Upsert entity to Port
         if: ${{ inputs.mock == 'false' }}
         uses: port-labs/port-github-action@v1

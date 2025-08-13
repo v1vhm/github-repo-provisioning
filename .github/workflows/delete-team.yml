@@ -144,6 +144,11 @@ jobs:
             sleep 5
           done
 
+      - name: Cleanup Terraform
+        if: ${{ always() && inputs.mock == 'false' && env.MODE == 'destroy' }}
+        working-directory: teams/modules/team
+        run: rm -rf .terraform terraform.tfstate*
+
       - name: Verify deletion
         if: ${{ inputs.mock == 'false' && env.MODE == 'destroy' }}
         run: |

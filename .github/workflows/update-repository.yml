@@ -232,6 +232,11 @@ jobs:
             echo "DEFAULT_BRANCH=$(jq -r .default_branch.value tf.json)"
           } >> "$GITHUB_ENV"
 
+      - name: Cleanup Terraform
+        if: ${{ always() && inputs.mock == 'false' }}
+        working-directory: repositories/modules/repo
+        run: rm -rf .terraform terraform.tfstate*
+
       - name: Compute change message
         if: ${{ inputs.mock == 'false' }}
         run: |

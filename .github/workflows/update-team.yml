@@ -221,6 +221,11 @@ jobs:
           terraform apply -auto-approve tfplan
           echo "TF_HAS_CHANGES=$TF_HAS_CHANGES" >> "$GITHUB_ENV"
 
+      - name: Cleanup Terraform
+        if: ${{ always() && inputs.mock == 'false' }}
+        working-directory: teams/modules/team
+        run: rm -rf .terraform terraform.tfstate*
+
       - name: Membership changes
         if: ${{ inputs.mock == 'false' && (env.MEMBERS_MODE == 'add' || env.MEMBERS_MODE == 'remove') }}
         run: |

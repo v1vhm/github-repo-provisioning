@@ -15,8 +15,11 @@ The repository is organized by resource type for clarity:
 * **`environments/`** – Placeholder for environment configurations (not yet fully implemented).
 * **`.github/workflows/`** – GitHub Actions workflow files, one per operation (create repo, update team, add team to repo, etc.).
 * **`.github/actions/`** – Reusable composite actions for common tasks (e.g. committing YAML changes).
+* **`modules/github-initial-config/`** – Terraform module used to apply initial settings to new repositories.
 
 **Terraform State:** Each resource uses a separate Terraform state file (remote on Azure Blob Storage) for isolation. The Azure backend is accessed via OIDC, using secrets like `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_CONTAINER`, etc., with state file keys namespaced per entity (e.g. `repos/<repo>.tfstate` for each repository). This segmentation keeps state files small and avoids lock conflicts when multiple workflows run concurrently.
+
+Repository templates also carry a `.provisioning/repository-config.yml` file describing branch rulesets, default labels, team access, Actions variables and secrets. During repository creation a temporary Terraform workspace consumes this file through the `github-initial-config` module to configure the repository. The state from this step lives only on disk and is deleted after apply, leaving no persistent state for these settings.
 
 **GitHub App Authentication:** Workflows use a GitHub App’s credentials (APP ID, installation ID, private key in secrets) to obtain an installation token with appropriate org permissions. Every workflow uses the `actions/create-github-app-token@v1` action to mint a token, stored as `GITHUB_TOKEN` for subsequent API calls and Terraform operations. (Future improvement: create a reusable action to handle this token generation across workflows to reduce repetition.)
 
@@ -44,7 +47,7 @@ Finally, if any step fails at any point, a failure status is reported back to Po
 
 By following the above pattern, the repository includes the following workflows (all in `.github/workflows/`):
 
-* **Create Repository** (`create-repository.yml`): Creates a new GitHub repository from a template. Uses Terraform to create the repo (with settings like visibility, description, and an initial team permission), then runs Cookiecutter to populate it. Commits a new `repositories/manifests/<name>.yaml` with the repo’s details and upserts the Port *Repository* entity. Has validation to prevent duplicate names and ensure naming conventions.
+* **Create Repository** (`create-repository.yml`): Creates a new GitHub repository from a template. Uses Terraform to create the repo (with settings like visibility, description, and an initial team permission), then runs Cookiecutter to populate it. A subsequent **Configure repository** block reads the template’s `.provisioning/repository-config.yml` and applies it with the `github-initial-config` module to set rulesets, labels, team access, variables and secrets. The transient Terraform state for this configuration is cleaned up at the end. Commits a new `repositories/manifests/<name>.yaml` with the repo’s details and upserts the Port *Repository* entity. Has validation to prevent duplicate names and ensure naming conventions.
 
 * **Update Repository** (`update-repository.yml`): Updates settings of an existing repository (description, visibility, homepage URL, topics, default branch, etc.). It loads the current state from the YAML, merges in changes from the Port payload, and applies Terraform to update those fields. It explicitly does **not** manage team memberships (to avoid overwriting changes managed by other workflows). After updating, it commits changes to the manifest (including a `lastUpdatedAt` timestamp) and upserts the Port entity with new properties.
 

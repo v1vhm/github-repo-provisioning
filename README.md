@@ -13,6 +13,21 @@ Port catalog updates and run status reporting leverage the official [`port-labs/
 
 Refer to `AGENTS.md` for design decisions and the task list.
 
+## Repository Configuration
+
+Repository templates include `.provisioning/repository-config.yml`, a YAML file
+that defines initial settings such as branch rulesets, default labels, team
+permissions, Actions variables and secrets. The `create-repository` workflow
+parses this file in a **Configure repository** block and applies it using the
+`modules/github-initial-config` Terraform module. The block:
+
+1. Clones the template to read `.provisioning/repository-config.yml`.
+2. Maps any `workflow_secret` references in the file to provided secrets.
+3. Runs the module to create rulesets, labels, team access, variables and
+   secrets.
+4. Removes the local Terraform directory and state files, keeping this
+   configuration state ephemeral.
+
 ## Secrets and Variables
 
 The GitHub Actions workflows rely on several repository secrets (and

@@ -1,6 +1,16 @@
 # Inputs:
 #   port_payload: Port JSON payload
 #   mock: When true, skip side-effecting steps (default: false)
+# Port payload keys used (see docs/port-payload-contracts.md):
+# - runId
+# - blueprint
+# - requestedBy
+# - properties.team_name
+# - properties.privacy
+# - properties.description
+# - properties.parent_team_slug
+# - properties.members
+# - properties.alias_slugs
 name: Create GitHub team
 
 on:

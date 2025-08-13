@@ -1,6 +1,12 @@
 # Inputs:
 #   port_payload: Port JSON payload
 #   mock: When true, skip side-effecting steps (default: false)
+# Port payload keys used (see docs/port-payload-contracts.md):
+# - runId
+# - blueprint
+# - requestedBy
+# - properties.repo_name
+# - properties.note
 name: Archive GitHub repository
 
 on:

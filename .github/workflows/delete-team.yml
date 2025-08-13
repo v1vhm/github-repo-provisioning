@@ -1,6 +1,13 @@
 # Inputs:
 #   port_payload: Port JSON payload
 #   mock: When true, skip side-effecting steps (default: false)
+# Port payload keys used (see docs/port-payload-contracts.md):
+# - runId
+# - blueprint
+# - requestedBy
+# - properties.team_slug
+# - properties.force
+# - properties.note
 name: Delete GitHub team
 
 on:

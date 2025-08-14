@@ -56,7 +56,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Mock run notice
-        if: ${{ inputs.mock == 'true' }}
+        if: ${{ inputs.mock }}
         run: |
           echo "Mock run: skipping side-effecting steps"
 
@@ -125,10 +125,10 @@ jobs:
         with:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          owner: ${{ secrets.GH_ORG }}
 
       - name: Azure login
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -145,7 +145,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Terraform init
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -162,7 +162,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform plan and apply
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -216,12 +216,12 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Cleanup Terraform
-        if: ${{ always() && inputs.mock == 'false' }}
+        if: ${{ always() && !inputs.mock }}
         working-directory: repositories/modules/repo
         run: rm -rf .terraform terraform.tfstate*
 
       - name: Compute messages
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         run: |
           if [ "$TF_HAS_CHANGES" = "1" ]; then
             MSG="repository archived via Terraform"
@@ -240,7 +240,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Upsert entity to Port
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -261,7 +261,7 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Update manifest
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         run: |
           set -e
           pip install pyyaml >/dev/null
@@ -287,14 +287,14 @@ jobs:
           PY
 
       - name: Commit manifest
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.MANIFEST }}
           message: ${{ env.COMMIT_MESSAGE }}
 
       - name: Report failure to Port
-        if: ${{ failure() && inputs.mock == 'false' }}
+        if: ${{ failure() && !inputs.mock }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}

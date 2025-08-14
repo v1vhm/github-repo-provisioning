@@ -85,7 +85,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Mock run notice
-        if: ${{ inputs.mock == 'true' }}
+        if: ${{ inputs.mock }}
         run: |
           echo "Mock run: skipping side-effecting steps"
 
@@ -95,7 +95,7 @@ jobs:
         with:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          owner: ${{ secrets.GH_ORG }}
 
       - name: Validate repository name
         run: ./scripts/validate-name.sh "$GH_ORG" "$REPO_NAME"
@@ -127,7 +127,7 @@ jobs:
                     echo "MANIFEST=repositories/manifests/${REPO_NAME}.yaml" >> "$GITHUB_ENV"
 
       - name: Azure login
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -135,7 +135,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform init
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -152,7 +152,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform apply
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         working-directory: repositories/modules/repo
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -177,12 +177,12 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Cleanup Terraform
-        if: ${{ always() && inputs.mock == 'false' }}
+        if: ${{ always() && !inputs.mock }}
         working-directory: repositories/modules/repo
         run: rm -rf .terraform terraform.tfstate*
 
       - name: Scaffold repository
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
         run: |
@@ -199,7 +199,7 @@ jobs:
           git push origin main
 
       - name: Configure repository
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
           GH_SECRETS: ${{ toJson(secrets) }}
@@ -250,16 +250,16 @@ jobs:
           terraform apply -auto-approve -var owner="${GH_ORG}" -var repo="${REPO_NAME}"
 
       - name: Cleanup Terraform (configuration)
-        if: ${{ always() && inputs.mock == 'false' }}
+        if: ${{ always() && !inputs.mock }}
         run: rm -rf tf-config/.terraform tf-config/terraform.tfstate*
 
       - name: Mock run notice (configuration)
-        if: ${{ inputs.mock == 'true' }}
+        if: ${{ inputs.mock }}
         run: |
           echo "Mock run: skipping repository configuration"
 
       - name: Upsert entity to Port
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -283,7 +283,7 @@ jobs:
           status: success
 
       - name: Finalize manifest
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         run: |
           context_lines=$(echo "$COOKIECUTTER_CONTEXT" | jq -r 'to_entries[] | "      \(.key): \"\(.value)\""')
           cat > "$MANIFEST" <<MANIFEST
@@ -311,14 +311,14 @@ jobs:
           MANIFEST
 
       - name: Commit manifest
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.MANIFEST }}
           message: Add repository '${{ env.REPO_NAME }}' (automated via Port)
 
       - name: Report failure to Port
-        if: ${{ failure() && inputs.mock == 'false' }}
+        if: ${{ failure() && !inputs.mock }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -329,7 +329,7 @@ jobs:
           logMessage: 'Workflow failed'
 
       - name: Mark manifest failed
-        if: ${{ failure() && inputs.mock == 'false' }}
+        if: ${{ failure() && !inputs.mock }}
         run: |
           if [ -f "$MANIFEST" ]; then
             sed -i 's/phase: creating/phase: failed/' "$MANIFEST"

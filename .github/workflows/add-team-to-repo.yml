@@ -73,7 +73,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Mock run notice
-        if: ${{ inputs.mock == 'true' }}
+        if: ${{ inputs.mock }}
         run: |
           echo "Mock run: skipping side-effecting steps"
 
@@ -83,7 +83,7 @@ jobs:
         with:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          owner: ${{ secrets.GH_ORG }}
 
       - name: Validate repository and team
         run: |
@@ -110,7 +110,7 @@ jobs:
             } >> "$GITHUB_ENV"
 
       - name: Apply permission
-        if: ${{ inputs.mock == 'false' && env.ACTION != 'noop' }}
+        if: ${{ !inputs.mock && env.ACTION != 'noop' }}
         run: |
           for i in 1 2; do
             if gh api --method PUT "/orgs/${GH_ORG}/teams/${TEAM_SLUG}/repos/${GH_ORG}/${REPO_NAME}" -f permission="${PERMISSION}"; then
@@ -123,7 +123,7 @@ jobs:
             done
 
       - name: Verify permission
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         run: |
             final=$(gh api "repos/${GH_ORG}/${REPO_NAME}/teams" -q ".[] | select(.slug==\"${TEAM_SLUG}\") | .permission" || true)
             if [ -z "$final" ]; then
@@ -139,7 +139,7 @@ jobs:
             } >> "$GITHUB_ENV"
 
       - name: Build commit message
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         run: |
           msg="Grant team '${TEAM_SLUG}' '${FINAL_PERMISSION}' on repo '${REPO_NAME}' (via Port)"
           if [ -n "$NOTE" ]; then
@@ -148,7 +148,7 @@ jobs:
           echo "COMMIT_MESSAGE=$msg" >> "$GITHUB_ENV"
 
       - name: Update manifests
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         run: |
           set -euo pipefail
           pip install pyyaml >/dev/null
@@ -177,7 +177,7 @@ jobs:
           PY
 
       - name: Upsert entity to Port
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -193,18 +193,18 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Stage team manifest
-        if: ${{ inputs.mock == 'false' && env.MIRROR == 'true' && env.TEAM_CHANGED == '1' }}
+        if: ${{ !inputs.mock && env.MIRROR == 'true' && env.TEAM_CHANGED == '1' }}
         run: git add "${{ env.TEAM_MANIFEST }}"
 
       - name: Commit manifest(s)
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.REPO_MANIFEST }}
           message: ${{ env.COMMIT_MESSAGE }}
 
       - name: Report failure to Port
-        if: ${{ failure() && inputs.mock == 'false' }}
+        if: ${{ failure() && !inputs.mock }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}

@@ -11,13 +11,20 @@ This document lists the JSON keys expected in the `port_payload` input for Port-
 
 ### create-repository.yml
 **Required**
-- `properties.repo_name` – name of the repository to create and manifest file
-- `properties.description` – description of the repository
-- `properties.visibility` – repository visibility (`private`, `internal`, `public`)
-- `properties.owner_team_slug` – slug of the team assigned as owner
-- `properties.owner_team_permission` – permission granted to the owner team
+- `properties.port_product_identifier` – product identifier used to derive the repository name
+- `properties.port_service_identifier` – service identifier used to derive the repository name
+- `properties.port_service_description` – description of the repository
+- `properties.port_repo_visibility` – repository visibility (`private`, `internal`, `public`)
+- `properties.port_owning_team_slug` – slug of the team assigned as owner
+- `properties.port_owner_team_permission` – permission granted to the owner team
 - `properties.cookiecutter_template` – cookiecutter template used to scaffold the repo
-- `properties.cookiecutter_context` – key/value variables passed to the template
+- `properties.cookiecutter_user_context` – user-defined key/value variables passed to the template
+- `properties.port_service_name` – standard cookiecutter input `port_service_name`
+- `properties.port_cost_centre` – standard cookiecutter input `port_cost_centre`
+- `properties.port_owning_team` – standard cookiecutter input `port_owning_team`
+- `properties.port_owning_team_identifier` – standard cookiecutter input `port_owning_team_identifier`
+
+The repository name is derived as `<port_product_identifier>-<port_service_identifier>`.
 
 ### update-repository.yml
 **Required**

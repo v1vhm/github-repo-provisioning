@@ -74,7 +74,7 @@ jobs:
             echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)"
             echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)"
             echo "REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)"
-            echo "REPO_NAME=$(echo "$PAYLOAD" | jq -r '.properties.port_product_identifier + "-" + .properties.port_service_identifier')"
+            echo "REPO_NAME=$(echo "$PAYLOAD" | jq -r .properties.port_service_identifier)"
             echo "DESCRIPTION=$(echo "$PAYLOAD" | jq -r .properties.port_service_description)"
             echo "REPO_VISIBILITY=$(echo "$PAYLOAD" | jq -r .properties.port_repo_visibility)"
             echo "OWNING_TEAM_SLUG=$(echo "$PAYLOAD" | jq -r .properties.port_owning_team_slug)"

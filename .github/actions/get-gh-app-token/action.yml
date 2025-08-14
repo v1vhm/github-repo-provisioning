@@ -14,6 +14,9 @@ outputs:
   token:
     description: Installation access token
     value: ${{ steps.token.outputs.token }}
+  app-slug:
+    description: GitHub App slug
+    value: ${{ steps.token.outputs.app-slug }}
 runs:
   using: composite
   steps:

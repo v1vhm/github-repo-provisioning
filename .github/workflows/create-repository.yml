@@ -260,7 +260,7 @@ jobs:
 
       - name: Upsert entity to Port
         if: ${{ inputs.mock == 'false' }}
-        uses: port-labs/port-action@v1
+        uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
@@ -319,7 +319,7 @@ jobs:
 
       - name: Report failure to Port
         if: ${{ failure() && inputs.mock == 'false' }}
-        uses: port-labs/port-action@v1
+        uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}

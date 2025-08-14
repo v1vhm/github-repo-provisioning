@@ -5,7 +5,7 @@ Composite action to create a GitHub App installation token and export it for sub
 ## Inputs
 - `app_id` – GitHub App ID
 - `private_key` – GitHub App private key
-- `installation_id` – Installation ID
+- `owner` – GitHub organization or user
 
 ## Outputs
 - `token` – The generated installation token

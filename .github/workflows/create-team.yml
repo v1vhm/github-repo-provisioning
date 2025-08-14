@@ -84,7 +84,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Mock run notice
-        if: ${{ inputs.mock == 'true' }}
+        if: ${{ inputs.mock }}
         run: |
           echo "Mock run: skipping side-effecting steps"
 
@@ -94,7 +94,7 @@ jobs:
         with:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          owner: ${{ secrets.GH_ORG }}
 
       - name: Validate team slug
         run: ./scripts/validate-team-name.sh "$GH_ORG" "$TEAM_SLUG"
@@ -142,7 +142,7 @@ jobs:
           scripts/draft-team-manifest.sh "$TEAM_SLUG" "$TEAM_NAME" "$CREATED_AT" "$REQUESTED_BY" "$DESCRIPTION" "$PRIVACY" "$PARENT_TEAM_SLUG" "$members_formatted" "$aliases_formatted"
 
       - name: Azure login
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -150,7 +150,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform init
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         working-directory: teams/modules/team
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -167,7 +167,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform apply
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         working-directory: teams/modules/team
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -192,12 +192,12 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Cleanup Terraform
-        if: ${{ always() && inputs.mock == 'false' }}
+        if: ${{ always() && !inputs.mock }}
         working-directory: teams/modules/team
         run: rm -rf .terraform terraform.tfstate*
 
       - name: Upsert entity to Port
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -223,7 +223,7 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Finalize manifest
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         run: |
           members_block=$(echo "$TF_MEMBERS" | jq -r '.[] | "- username: \(.username)\n  role: \(.role)"')
           aliases_block=$(echo "$ALIASES" | jq -r '.[] | "- \(.)"')
@@ -251,14 +251,14 @@ jobs:
           MANIFEST
 
       - name: Commit manifest
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: ./.github/actions/commit-yaml
         with:
           path: ${{ env.MANIFEST }}
           message: Add team '${{ env.TEAM_SLUG }}' (automated via Port)
 
       - name: Report failure to Port
-        if: ${{ failure() && inputs.mock == 'false' }}
+        if: ${{ failure() && !inputs.mock }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -269,7 +269,7 @@ jobs:
           logMessage: 'Workflow failed'
 
       - name: Mark manifest failed
-        if: ${{ failure() && inputs.mock == 'false' }}
+        if: ${{ failure() && !inputs.mock }}
         run: |
           if [ -f "$MANIFEST" ]; then
             sed -i 's/phase: creating/phase: failed/' "$MANIFEST"

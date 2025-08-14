@@ -78,7 +78,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Mock run notice
-        if: ${{ inputs.mock == 'true' }}
+        if: ${{ inputs.mock }}
         run: |
           echo "Mock run: skipping side-effecting steps"
 
@@ -105,7 +105,7 @@ jobs:
         with:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          installation_id: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          owner: ${{ secrets.GH_ORG }}
 
       - name: Fetch current team
         run: |
@@ -179,7 +179,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Terraform init
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         working-directory: teams/modules/team
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -196,7 +196,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform plan and apply
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         working-directory: teams/modules/team
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -234,12 +234,12 @@ jobs:
           echo "TF_HAS_CHANGES=$TF_HAS_CHANGES" >> "$GITHUB_ENV"
 
       - name: Cleanup Terraform
-        if: ${{ always() && inputs.mock == 'false' }}
+        if: ${{ always() && !inputs.mock }}
         working-directory: teams/modules/team
         run: rm -rf .terraform terraform.tfstate*
 
       - name: Membership changes
-        if: ${{ inputs.mock == 'false' && (env.MEMBERS_MODE == 'add' || env.MEMBERS_MODE == 'remove') }}
+        if: ${{ !inputs.mock && (env.MEMBERS_MODE == 'add' || env.MEMBERS_MODE == 'remove') }}
         run: |
           changes=0
           if [ "${MEMBERS_MODE}" = "add" ]; then
@@ -261,11 +261,11 @@ jobs:
           echo "MEMBERSHIP_CHANGES=$changes" >> "$GITHUB_ENV"
 
       - name: Set membership changes default
-        if: ${{ inputs.mock == 'false' && (env.MEMBERS_MODE == '' || env.MEMBERS_MODE == 'set') }}
+        if: ${{ !inputs.mock && (env.MEMBERS_MODE == '' || env.MEMBERS_MODE == 'set') }}
         run: echo "MEMBERSHIP_CHANGES=0" >> "$GITHUB_ENV"
 
       - name: Gather final membership
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         run: |
           all=$(gh api "orgs/${GH_ORG}/teams/${TEAM_SLUG}/members" --paginate --jq '.[].login')
           json='[]'
@@ -276,7 +276,7 @@ jobs:
           echo "FINAL_MEMBERS=$json" >> "$GITHUB_ENV"
 
       - name: Compute change count and message
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         run: |
           total=$((TF_HAS_CHANGES + MEMBERSHIP_CHANGES))
           if [ -n "$ALIASES_PAYLOAD" ] && [ "$ALIASES_PAYLOAD" != "$EXISTING_ALIASES" ]; then
@@ -299,7 +299,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Upsert entity to Port
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -322,7 +322,7 @@ jobs:
           logMessage: ${{ env.PORT_MESSAGE }}
 
       - name: Update manifest
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         run: |
           mkdir -p teams/manifests
           members_block=$(echo "$FINAL_MEMBERS" | jq -r '.[] | "- username: \(.username)\n  role: \(.role)"')
@@ -332,14 +332,14 @@ jobs:
           scripts/draft-update-team-manifest.sh "$TEAM_SLUG" "$TEAM_NAME" "$EXISTING_CREATED_AT" "$EXISTING_CREATED_BY" "$DESCRIPTION" "$PRIVACY" "$PARENT_TEAM_SLUG" "$members_formatted" "$aliases_formatted" "${TEAM_ID:-$EXISTING_ID}" "${HTML_URL:-$EXISTING_HTML_URL}"
 
       - name: Commit manifest
-        if: ${{ inputs.mock == 'false' }}
+        if: ${{ !inputs.mock }}
         uses: ./.github/actions/commit-yaml
         with:
           path: teams/manifests/${{ env.TEAM_SLUG }}.yaml
           message: Update team '${{ env.TEAM_SLUG }}' (settings/membership via Port)
 
       - name: Report failure to Port
-        if: ${{ failure() && inputs.mock == 'false' }}
+        if: ${{ failure() && !inputs.mock }}
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}

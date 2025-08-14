@@ -23,7 +23,7 @@ All workflows reside in `.github/workflows/` and each corresponds to a specific 
   ```yaml
   - name: Get GitHub App token
     uses: ./.github/actions/get-gh-app-token
-    with: { app_id: ..., private_key: ..., installation_id: ... }
+    with: { app_id: ..., private_key: ..., owner: ... }
   ```
 
   The action writes the installation token to both `GITHUB_TOKEN` and `GH_TOKEN` for subsequent steps. **Do not use** the default `GITHUB_TOKEN` for org operations, as it lacks the required permissions.

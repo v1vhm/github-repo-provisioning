@@ -192,7 +192,9 @@ jobs:
         run: |
           pip install cookiecutter
           tmpdir=$(mktemp -d)
-          cookiecutter "$COOKIECUTTER_TEMPLATE" --no-input --output-dir "$tmpdir" --extra-context "$COOKIECUTTER_CONTEXT"
+          context_args=$(echo "$COOKIECUTTER_CONTEXT" | jq -r 'to_entries | map("\(.key)=\(.value|@sh)") | join(" ")')
+          eval set -- "$context_args"
+          cookiecutter "$COOKIECUTTER_TEMPLATE" --no-input --output-dir "$tmpdir" "$@"
           generated_dir=$(ls -d "$tmpdir"/*)
           cd "$generated_dir"
           git init

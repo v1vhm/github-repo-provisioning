@@ -244,7 +244,7 @@ variable "secret_values" {
 
   1. Ensure variables listed in Section 7 are defined in `cookiecutter.json`.
   2. Thread into README or metadata files as needed (no hard dependencies for provisioning).
-* Output: cookiecutter generation works with `--no-input` and extra‑context.
+* Output: cookiecutter generation works with `--no-input` and extra context supplied as key/value pairs.
 
 **Task E — Tests & fixtures**
 

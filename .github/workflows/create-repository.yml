@@ -69,7 +69,7 @@ jobs:
 
           PORT_CONTEXT=$(echo "$PAYLOAD" | jq -c '.properties | with_entries(select(.key | startswith("port_")))')
           USER_CONTEXT=$(echo "$PAYLOAD" | jq -c .properties.cookiecutter_user_context)
-          COMBINED_CONTEXT=$(jq -n --argjson port "$PORT_CONTEXT" --argjson user "$USER_CONTEXT" '$port + $user')
+          COMBINED_CONTEXT=$(jq -c -n --argjson port "$PORT_CONTEXT" --argjson user "$USER_CONTEXT" '$port + $user')
           {
             echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)"
             echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)"

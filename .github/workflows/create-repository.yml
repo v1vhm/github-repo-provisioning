@@ -5,13 +5,18 @@
 # - runId
 # - blueprint
 # - requestedBy
-# - properties.repo_name
-# - properties.description
-# - properties.visibility
-# - properties.owner_team_slug
-# - properties.owner_team_permission
+# - properties.port_product_identifier
+# - properties.port_service_identifier
+# - properties.port_service_name
+# - properties.port_service_description
+# - properties.port_cost_centre
+# - properties.port_owning_team
+# - properties.port_owning_team_identifier
+# - properties.port_repo_visibility
+# - properties.port_owning_team_slug
+# - properties.port_owner_team_permission
 # - properties.cookiecutter_template
-# - properties.cookiecutter_context
+# - properties.cookiecutter_user_context
 name: Create repository from template
 
 on:
@@ -48,18 +53,34 @@ jobs:
         id: parse
         run: |
           PAYLOAD='${{ inputs.port_payload }}'
-          echo "$PAYLOAD" | jq -e '.runId,.properties.repo_name,.properties.description,.properties.visibility,.properties.owner_team_slug,.properties.owner_team_permission,.properties.cookiecutter_template,.properties.cookiecutter_context' >/dev/null
+          echo "$PAYLOAD" | jq -e '.runId,
+            .properties.port_product_identifier,
+            .properties.port_service_identifier,
+            .properties.port_service_name,
+            .properties.port_service_description,
+            .properties.port_cost_centre,
+            .properties.port_owning_team,
+            .properties.port_owning_team_identifier,
+            .properties.port_repo_visibility,
+            .properties.port_owning_team_slug,
+            .properties.port_owner_team_permission,
+            .properties.cookiecutter_template,
+            .properties.cookiecutter_user_context' >/dev/null
+
+          PORT_CONTEXT=$(echo "$PAYLOAD" | jq -c '.properties | with_entries(select(.key | startswith("port_")))')
+          USER_CONTEXT=$(echo "$PAYLOAD" | jq -c .properties.cookiecutter_user_context)
+          COMBINED_CONTEXT=$(jq -n --argjson port "$PORT_CONTEXT" --argjson user "$USER_CONTEXT" '$port + $user')
           {
             echo "RUN_ID=$(echo "$PAYLOAD" | jq -r .runId)"
             echo "BLUEPRINT=$(echo "$PAYLOAD" | jq -r .blueprint)"
             echo "REQUESTED_BY=$(echo "$PAYLOAD" | jq -r .requestedBy)"
-            echo "REPO_NAME=$(echo "$PAYLOAD" | jq -r .properties.repo_name)"
-            echo "DESCRIPTION=$(echo "$PAYLOAD" | jq -r .properties.description)"
-            echo "VISIBILITY=$(echo "$PAYLOAD" | jq -r .properties.visibility)"
-            echo "OWNER_TEAM_SLUG=$(echo "$PAYLOAD" | jq -r .properties.owner_team_slug)"
-            echo "OWNER_TEAM_PERMISSION=$(echo "$PAYLOAD" | jq -r .properties.owner_team_permission)"
+            echo "REPO_NAME=$(echo "$PAYLOAD" | jq -r '.properties.port_product_identifier + "-" + .properties.port_service_identifier')"
+            echo "DESCRIPTION=$(echo "$PAYLOAD" | jq -r .properties.port_service_description)"
+            echo "REPO_VISIBILITY=$(echo "$PAYLOAD" | jq -r .properties.port_repo_visibility)"
+            echo "OWNING_TEAM_SLUG=$(echo "$PAYLOAD" | jq -r .properties.port_owning_team_slug)"
+            echo "OWNER_TEAM_PERMISSION=$(echo "$PAYLOAD" | jq -r .properties.port_owner_team_permission)"
             echo "COOKIECUTTER_TEMPLATE=$(echo "$PAYLOAD" | jq -r .properties.cookiecutter_template)"
-            echo "COOKIECUTTER_CONTEXT=$(echo "$PAYLOAD" | jq -c .properties.cookiecutter_context)"
+            echo "COOKIECUTTER_CONTEXT=$COMBINED_CONTEXT"
             echo "CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } >> "$GITHUB_ENV"
 
@@ -92,9 +113,9 @@ jobs:
             createdBy: "$REQUESTED_BY"
           spec:
             description: "$DESCRIPTION"
-            visibility: "$VISIBILITY"
+            visibility: "$REPO_VISIBILITY"
             ownerTeam:
-              slug: "$OWNER_TEAM_SLUG"
+              slug: "$OWNING_TEAM_SLUG"
               permission: "$OWNER_TEAM_PERMISSION"
             template:
               source: "$COOKIECUTTER_TEMPLATE"
@@ -144,8 +165,8 @@ jobs:
             -var "org=$GH_ORG" \
             -var "repo_name=$REPO_NAME" \
             -var "description=$DESCRIPTION" \
-            -var "visibility=$VISIBILITY" \
-            -var "owner_team_slug=$OWNER_TEAM_SLUG" \
+            -var "visibility=$REPO_VISIBILITY" \
+            -var "owner_team_slug=$OWNING_TEAM_SLUG" \
             -var "owner_perm=$OWNER_TEAM_PERMISSION"
           terraform output -json > tf.json
           {
@@ -171,7 +192,7 @@ jobs:
           generated_dir=$(ls -d "$tmpdir"/*)
           cd "$generated_dir"
           git init
-          git remote add origin https://x-access-token:${GITHUB_TOKEN}@github.com/${GH_ORG}/${REPO_NAME}.git
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GH_ORG}/${REPO_NAME}.git"
           git add .
           git commit -m "Initial commit from template"
           git branch -M main
@@ -252,11 +273,11 @@ jobs:
               "description": "${{ env.DESCRIPTION }}",
               "htmlUrl": "${{ env.html_url }}",
               "sshUrl": "${{ env.ssh_url }}",
-              "visibility": "${{ env.VISIBILITY }}"
+              "visibility": "${{ env.REPO_VISIBILITY }}"
             }
           relations: |
             {
-              "owner": "${{ env.OWNER_TEAM_SLUG }}"
+              "owner": "${{ env.OWNING_TEAM_SLUG }}"
             }
           runId: ${{ env.RUN_ID }}
           status: success
@@ -274,9 +295,9 @@ jobs:
             createdBy: "$REQUESTED_BY"
           spec:
             description: "$DESCRIPTION"
-            visibility: "$VISIBILITY"
+            visibility: "$REPO_VISIBILITY"
             ownerTeam:
-              slug: "$OWNER_TEAM_SLUG"
+              slug: "$OWNING_TEAM_SLUG"
               permission: "$OWNER_TEAM_PERMISSION"
             template:
               source: "$COOKIECUTTER_TEMPLATE"

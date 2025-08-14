@@ -277,34 +277,6 @@ jobs:
         run: |
           echo "Mock run: skipping repository configuration"
 
-      - name: Upsert entity to Port
-        if: ${{ !inputs.mock }}
-        uses: port-labs/port-github-action@v1
-        with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: UPSERT
-          identifier: ${{ env.REPO_NAME }}
-          title: ${{ env.REPO_NAME }}
-          blueprint: ${{ env.BLUEPRINT }}
-          properties: |
-            {
-              "short_name": ${{ env.REPO_NAME }}
-              "description": "${{ env.DESCRIPTION }}",
-              "htmlUrl": "${{ env.html_url }}",
-              "sshUrl": "${{ env.ssh_url }}",
-              "visibility": "${{ env.REPO_VISIBILITY }}"
-            }
-          relations: |
-            {
-              "owner": "${{ env.OWNING_TEAM_SLUG }}",
-              "product": "${{ env.PRODUCT_IDENTIFIER }}",
-              "service_template": "${{  env.COOKIECUTTER_TEMPLATE }}",
-              "service_cost_centre": "${{ env.PRODUCT_COST_CENTRE }}"
-            }
-          runId: ${{ env.RUN_ID }}
-          status: success
-
       - name: Finalize manifest
         if: ${{ !inputs.mock }}
         run: |

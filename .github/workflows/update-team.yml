@@ -178,6 +178,10 @@ jobs:
             echo "ALIASES_FINAL=$ALIASES_FINAL"
           } >> "$GITHUB_ENV"
 
+      - name: Setup Terraform
+        if: ${{ !inputs.mock }}
+        uses: hashicorp/setup-terraform@v3
+
       - name: Terraform init
         if: ${{ !inputs.mock }}
         working-directory: teams/modules/team

@@ -81,6 +81,8 @@ jobs:
             echo "OWNER_TEAM_PERMISSION=$(echo "$PAYLOAD" | jq -r .properties.port_owner_team_permission)"
             echo "COOKIECUTTER_TEMPLATE=$(echo "$PAYLOAD" | jq -r .properties.cookiecutter_template)"
             echo "COOKIECUTTER_CONTEXT=$COMBINED_CONTEXT"
+            echo "PRODUCT_IDENTIFIER=$(echo "$PAYLOAD" | jq -r .properties.port_product_identifier)"
+            echo "PRODUCT_COST_CENTRE=$(echo "$PAYLOAD" | jq -r .properties.port_cost_centre)"
             echo "CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } >> "$GITHUB_ENV"
 
@@ -287,6 +289,7 @@ jobs:
           blueprint: ${{ env.BLUEPRINT }}
           properties: |
             {
+              "short_name": ${{ env.REPO_NAME }}
               "description": "${{ env.DESCRIPTION }}",
               "htmlUrl": "${{ env.html_url }}",
               "sshUrl": "${{ env.ssh_url }}",
@@ -294,7 +297,10 @@ jobs:
             }
           relations: |
             {
-              "owner": "${{ env.OWNING_TEAM_SLUG }}"
+              "owner": "${{ env.OWNING_TEAM_SLUG }}",
+              "product": "${{ env.PRODUCT_IDENTIFIER }}",
+              "service_template": "${{  env.COOKIECUTTER_TEMPLATE }}",
+              "service_cost_centre": "${{ env.PRODUCT_COST_CENTRE }}"
             }
           runId: ${{ env.RUN_ID }}
           status: success

@@ -347,6 +347,7 @@ jobs:
           owner: ${{ env.GH_ORG }}
 
       - name: Scaffold repository
+        id: scaffold
         if: ${{ !inputs.mock }}
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
@@ -362,6 +363,7 @@ jobs:
             echo "Cookiecutter produced no output" >&2
             exit 1
           fi
+          echo "template=$COOKIECUTTER_TEMPLATE" >> "$GITHUB_OUTPUT"
           cd "$generated_dir"
           git init
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GH_ORG}/${REPO_NAME}.git"
@@ -369,6 +371,16 @@ jobs:
           git commit -m "Initial commit from template"
           git branch -M main
           git push origin main
+
+      - name: Port log – scaffold succeeded
+        if: ${{ !inputs.mock }}
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          logMessage: "Scaffold succeeded using template ${{ steps.scaffold.outputs.template }}"
 
   configure-repo:
     needs: [validation, scaffold-service]

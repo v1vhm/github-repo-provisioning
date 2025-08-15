@@ -64,6 +64,9 @@ jobs:
             .github_repository,
             .state_file_container,
             .environment_type,
+            .request_identifier,
+            .environment_identifier,
+            .service_identifier,
             .managed_identity_client_id,
             .environment_location,
             .environment_resource_group,
@@ -74,12 +77,22 @@ jobs:
             echo "github_repository=$(echo "$PAYLOAD" | jq -r .github_repository)"
             echo "state_file_container=$(echo "$PAYLOAD" | jq -r .state_file_container)"
             echo "environment_type=$(echo "$PAYLOAD" | jq -r .environment_type)"
+            echo "request_identifier=$(echo "$PAYLOAD" | jq -r .request_identifier)"
+            echo "environment_identifier=$(echo "$PAYLOAD" | jq -r .environment_identifier)"
+            echo "service_identifier=$(echo "$PAYLOAD" | jq -r .service_identifier)"
             echo "managed_identity_client_id=$(echo "$PAYLOAD" | jq -r .managed_identity_client_id)"
             echo "environment_location=$(echo "$PAYLOAD" | jq -r .environment_location)"
             echo "environment_resource_group=$(echo "$PAYLOAD" | jq -r .environment_resource_group)"
             echo "state_file_resource_group=$(echo "$PAYLOAD" | jq -r .state_file_resource_group)"
             echo "state_file_storage_account=$(echo "$PAYLOAD" | jq -r .state_file_storage_account)"
           } >> "$GITHUB_OUTPUT"
+      - name: Derive identifiers
+        run: |
+          {
+            echo "REPO_NAME=$(basename \"${{ steps.parse.outputs.github_repository }}\")"
+            echo "ENV_NAME=${{ steps.parse.outputs.environment_type }}"
+            echo "WORKLOAD_ID=$(basename \"${{ steps.parse.outputs.github_repository }}\")-${{ steps.parse.outputs.environment_type }}"
+          } >> "$GITHUB_ENV"
 
       - name: Port log – start
         uses: port-labs/port-github-action@v1
@@ -155,8 +168,6 @@ jobs:
         run: |
           set -euo pipefail
           pip install pyyaml >/dev/null
-          REPO_NAME=$(basename "${{ steps.parse.outputs.github_repository }}")
-          ENV_NAME="${{ steps.parse.outputs.environment_type }}"
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           export REPO_NAME ENV_NAME NOW
           python - <<'PY' >> "$GITHUB_ENV"
@@ -179,6 +190,34 @@ jobs:
         with:
           path: ${{ env.MANIFEST }}
           message: ${{ env.COMMIT_MESSAGE }}
+
+      - name: Upsert workload in Port
+        if: ${{ success() }}
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: UPSERT
+          identifier: ${{ env.WORKLOAD_ID }}
+          title: ${{ env.WORKLOAD_ID }}
+          blueprint: workload
+          relations: |
+            { "environment": "${{ steps.parse.outputs.environment_identifier }}", "service": "${{ steps.parse.outputs.service_identifier }}" }
+          runId: ${{ steps.parse.outputs.run_id }}
+          status: success
+          logMessage: "Linked service '${{ steps.parse.outputs.service_identifier }}' with environment '${{ steps.parse.outputs.environment_identifier }}'"
+
+      - name: Mark link request complete
+        if: ${{ success() }}
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: UPSERT
+          blueprint: link_environment_request
+          identifier: ${{ steps.parse.outputs.request_identifier }}
+          properties: |
+            { "status": "Complete" }
 
       - name: Report success to Port
         if: ${{ success() }}

@@ -284,7 +284,7 @@ jobs:
             -var "description=$DESCRIPTION" \
             -var "visibility=$REPO_VISIBILITY" \
             -var "owner_team_slug=$OWNING_TEAM_SLUG" \
-            -var "owner_perm=$OWNER_TEAM_PERMISSION"
+            -var "owner_perm=$OWNER_TEAM_PERMISSION" | tee tf.log
           terraform output -json > tf.json
           repo_id=$(jq -r .repo_id.value tf.json)
           html_url=$(jq -r .html_url.value tf.json)
@@ -302,6 +302,14 @@ jobs:
             echo "repository=$REPO_NAME"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Summarize Terraform resources
+        id: tf_summary
+        if: ${{ !inputs.mock }}
+        working-directory: repositories/modules/repo
+        run: |
+          resources=$(grep 'Creation complete after' tf.log | cut -d: -f1 | paste -sd "," - || true)
+          echo "resources=$resources" >> "$GITHUB_OUTPUT"
+
       - name: Cleanup Terraform
         if: ${{ always() && !inputs.mock }}
         working-directory: repositories/modules/repo
@@ -315,7 +323,7 @@ jobs:
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: PATCH_RUN
           runId: ${{ env.RUN_ID }}
-          logMessage: "Repository created: ${{ steps.create_repo.outputs.repository }} (${{ steps.create_repo.outputs.html_url }})"
+          logMessage: "Repository created: ${{ steps.create_repo.outputs.repository }} (${{ steps.create_repo.outputs.html_url }}) Resources: ${{ steps.tf_summary.outputs.resources }}"
 
   scaffold-service:
     needs: [validation, create-repo]

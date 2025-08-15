@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: GitHubRepository
+metadata:
+  name: testpr-infra21
+  createdAt: "2025-08-15T09:22:36Z"
+  createdBy: "matt@v1vhm.onmicrosoft.com"
+spec:
+  description: "infra21"
+  visibility: "public"
+  ownerTeam:
+    slug: "cloud-platform-team"
+    permission: "push"
+  template:
+    source: "https://github.com/v1vhm/template-terraform-service"
+    context:
+      port_product_identifier: "TESTPR"
+      port_service_identifier: "testpr-infra21"
+      port_service_name: "infra21"
+      port_service_description: "infra21"
+      port_cost_centre: "123456"
+      port_owning_team: "Cloud Platform Team"
+      port_owning_team_identifier: "cloud_platform_team"
+      port_repo_visibility: "public"
+      port_owning_team_slug: "cloud-platform-team"
+      port_owner_team_permission: "push"
+status:
+  id: "R_kgDOPeX0IA"
+  htmlUrl: "https://github.com/v1vhm/testpr-infra21"
+  sshUrl: "git@github.com:v1vhm/testpr-infra21.git"
+  phase: active

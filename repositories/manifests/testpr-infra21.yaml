@@ -2,14 +2,16 @@ apiVersion: v1
 kind: GitHubRepository
 metadata:
   name: testpr-infra21
-  createdAt: "2025-08-15T09:22:36Z"
-  createdBy: "matt@v1vhm.onmicrosoft.com"
+  createdAt: '2025-08-15T09:22:36Z'
+  createdBy: matt@v1vhm.onmicrosoft.com
 spec:
   description: "infra21"
   visibility: "public"
   ownerTeam:
     slug: "cloud-platform-team"
     permission: "push"
+  environments:
+  - "dev"
   template:
     source: "https://github.com/v1vhm/template-terraform-service"
     context:
@@ -24,7 +26,8 @@ spec:
       port_owning_team_slug: "cloud-platform-team"
       port_owner_team_permission: "push"
 status:
-  id: "R_kgDOPeX0IA"
+  id: R_kgDOPeX0IA
   htmlUrl: "https://github.com/v1vhm/testpr-infra21"
   sshUrl: "git@github.com:v1vhm/testpr-infra21.git"
   phase: active
+  lastUpdatedAt: "2024-01-01T00:00:00Z"

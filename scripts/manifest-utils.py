@@ -68,6 +68,17 @@ def remove_team_repo(team_path, repo_name, timestamp):
     _write(team_path, data)
     return True
 
+def upsert_repo_environment(repo_path, env_name, timestamp):
+    """Add an environment to a repository manifest and touch lastUpdatedAt."""
+    data = _read(repo_path)
+    spec = data.setdefault("spec", {})
+    envs = spec.setdefault("environments", [])
+    if env_name in envs:
+        return False
+    envs.append(env_name)
+    touch_last_updated(repo_path, timestamp, data)
+    return True
+
 def touch_last_updated(path, timestamp, data=None):
     """Update status.lastUpdatedAt on a manifest."""
     data = data if data is not None else _read(path)

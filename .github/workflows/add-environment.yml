@@ -151,12 +151,34 @@ jobs:
             -var "environment_name=${{ steps.parse.outputs.environment_type }}" \
             -var "managed_identity_client_id=${{ steps.parse.outputs.managed_identity_client_id }}"
           terraform output -json > tf.json
+      - name: Update repository manifest
+        run: |
+          set -euo pipefail
+          pip install pyyaml >/dev/null
+          REPO_NAME=$(basename "${{ steps.parse.outputs.github_repository }}")
+          ENV_NAME="${{ steps.parse.outputs.environment_type }}"
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          export REPO_NAME ENV_NAME NOW
+          python - <<'PY' >> "$GITHUB_ENV"
+          import os, importlib.util
+          spec = importlib.util.spec_from_file_location('mu', 'scripts/manifest-utils.py')
+          mu = importlib.util.module_from_spec(spec); spec.loader.exec_module(mu)
+          repo=os.environ['REPO_NAME']
+          env=os.environ['ENV_NAME']
+          ts=os.environ['NOW']
+          path=f"repositories/manifests/{repo}.yaml"
+          changed = mu.upsert_repo_environment(path, env, ts)
+          print(f"MANIFEST={path}")
+          print(f"CHANGED={'1' if changed else '0'}")
+          print(f"COMMIT_MESSAGE=Add environment '{env}' to repo '{repo}'")
+          PY
 
-      - name: Commit workflow changes
+      - name: Commit manifest
+        if: ${{ env.CHANGED == '1' }}
         uses: ./.github/actions/commit-yaml
         with:
-          path: .
-          message: "Record environment workflow changes"
+          path: ${{ env.MANIFEST }}
+          message: ${{ env.COMMIT_MESSAGE }}
 
       - name: Report success to Port
         if: ${{ success() }}

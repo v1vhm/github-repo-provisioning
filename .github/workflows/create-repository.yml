@@ -213,9 +213,10 @@ jobs:
       OWNING_TEAM_SLUG: ${{ needs.validation.outputs.owning_team_slug }}
       OWNER_TEAM_PERMISSION: ${{ needs.validation.outputs.owner_team_permission }}
     outputs:
-      repo_id: ${{ steps.apply.outputs.repo_id }}
-      html_url: ${{ steps.apply.outputs.html_url }}
-      ssh_url: ${{ steps.apply.outputs.ssh_url }}
+      repo_id: ${{ steps.create_repo.outputs.repo_id }}
+      html_url: ${{ steps.create_repo.outputs.html_url }}
+      ssh_url: ${{ steps.create_repo.outputs.ssh_url }}
+      repository: ${{ steps.create_repo.outputs.repository }}
     steps:
       - name: Port log – start create-repo
         uses: port-labs/port-github-action@v1
@@ -267,7 +268,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform apply
-        id: apply
+        id: create_repo
         if: ${{ !inputs.mock }}
         working-directory: repositories/modules/repo
         env:
@@ -292,17 +293,29 @@ jobs:
             echo "repo_id=$repo_id"
             echo "html_url=$html_url"
             echo "ssh_url=$ssh_url"
+            echo "repository=$REPO_NAME"
           } >> "$GITHUB_ENV"
           {
             echo "repo_id=$repo_id"
             echo "html_url=$html_url"
             echo "ssh_url=$ssh_url"
+            echo "repository=$REPO_NAME"
           } >> "$GITHUB_OUTPUT"
 
       - name: Cleanup Terraform
         if: ${{ always() && !inputs.mock }}
         working-directory: repositories/modules/repo
         run: rm -rf .terraform terraform.tfstate*
+
+      - name: Port log – repository created
+        if: ${{ !inputs.mock }}
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          logMessage: "Repository created: ${{ steps.create_repo.outputs.repository }} (${{ steps.create_repo.outputs.html_url }})"
 
   scaffold-service:
     needs: [validation, create-repo]

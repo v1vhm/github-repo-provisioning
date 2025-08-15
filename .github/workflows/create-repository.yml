@@ -234,6 +234,7 @@ jobs:
             ownerTeam:
               slug: "$OWNING_TEAM_SLUG"
               permission: "$OWNER_TEAM_PERMISSION"
+            environments: []
             template:
               source: "$COOKIECUTTER_TEMPLATE"
               context:
@@ -659,6 +660,7 @@ jobs:
             ownerTeam:
               slug: "$OWNING_TEAM_SLUG"
               permission: "$OWNER_TEAM_PERMISSION"
+            environments: []
             template:
               source: "$COOKIECUTTER_TEMPLATE"
               context:

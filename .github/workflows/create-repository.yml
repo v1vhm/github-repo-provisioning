@@ -43,6 +43,8 @@ env:
 jobs:
   validation:
     runs-on: ubuntu-latest
+    env:
+      RUN_ID: ${{ fromJson(inputs.port_payload).runId }}
     outputs:
       run_id: ${{ steps.parse.outputs.run_id }}
       blueprint: ${{ steps.parse.outputs.blueprint }}
@@ -58,6 +60,14 @@ jobs:
       product_cost_centre: ${{ steps.parse.outputs.product_cost_centre }}
       created_at: ${{ steps.parse.outputs.created_at }}
     steps:
+      - name: Port log – start validation
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          logMessage: "Starting validation"
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -151,6 +161,14 @@ jobs:
     outputs:
       manifest: ${{ steps.draft.outputs.manifest }}
     steps:
+      - name: Port log – start env-setup
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          logMessage: "Starting env-setup"
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -199,6 +217,14 @@ jobs:
       html_url: ${{ steps.apply.outputs.html_url }}
       ssh_url: ${{ steps.apply.outputs.ssh_url }}
     steps:
+      - name: Port log – start create-repo
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          logMessage: "Starting create-repo"
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -282,10 +308,19 @@ jobs:
     needs: [validation, create-repo]
     runs-on: ubuntu-latest
     env:
+      RUN_ID: ${{ needs.validation.outputs.run_id }}
       REPO_NAME: ${{ needs.validation.outputs.repo_name }}
       COOKIECUTTER_TEMPLATE: ${{ needs.validation.outputs.cookiecutter_template }}
       COOKIECUTTER_CONTEXT: ${{ needs.validation.outputs.cookiecutter_context }}
     steps:
+      - name: Port log – start scaffold-service
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          logMessage: "Starting scaffold-service"
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -326,9 +361,18 @@ jobs:
     needs: [validation, scaffold-service]
     runs-on: ubuntu-latest
     env:
+      RUN_ID: ${{ needs.validation.outputs.run_id }}
       REPO_NAME: ${{ needs.validation.outputs.repo_name }}
       COOKIECUTTER_TEMPLATE: ${{ needs.validation.outputs.cookiecutter_template }}
     steps:
+      - name: Port log – start configure-repo
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          logMessage: "Starting configure-repo"
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -429,6 +473,14 @@ jobs:
       html_url: ${{ needs.create-repo.outputs.html_url }}
       ssh_url: ${{ needs.create-repo.outputs.ssh_url }}
     steps:
+      - name: Port log – start tidyup
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          logMessage: "Starting tidyup"
       - name: Checkout
         uses: actions/checkout@v4
         with:

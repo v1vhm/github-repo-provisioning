@@ -39,10 +39,19 @@ jobs:
       run_id: ${{ env.RUN_ID }}
       port_message: ${{ env.PORT_MESSAGE }}
     steps:
+      - name: Get GitHub App token
+        id: app-token
+        uses: ./.github/actions/get-gh-app-token
+        with:
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ env.GH_ORG }}
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Parse payload
         run: |
@@ -71,14 +80,6 @@ jobs:
         if: ${{ inputs.mock }}
         run: |
           echo "Mock run: skipping side-effecting steps"
-
-      - name: Get GitHub App token
-        id: app-token
-        uses: ./.github/actions/get-gh-app-token
-        with:
-          app_id: ${{ secrets.GH_APP_ID }}
-          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          owner: ${{ env.GH_ORG }}
 
       - name: Azure login
         if: ${{ !inputs.mock }}

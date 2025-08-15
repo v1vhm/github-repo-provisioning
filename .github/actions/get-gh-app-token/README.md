@@ -11,4 +11,4 @@ Composite action to create a GitHub App installation token and export it for sub
 - `token` – The generated installation token
 - `app-slug` – The GitHub App slug
 
-The action also writes the token to `GITHUB_TOKEN` and `GH_TOKEN` for downstream steps and configures the git user to the app's bot account.
+The action also writes the token to `GITHUB_TOKEN` and `GH_TOKEN` for downstream steps, configures the git user to the app's bot account, and updates the `origin` remote to authenticate pushes with the token.

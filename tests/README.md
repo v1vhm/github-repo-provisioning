@@ -8,7 +8,7 @@ run.
 ## Running workflows with `act`
 
 1. Create a `.secrets` file in the repository root with the secrets
-   required by the workflows (e.g. `GH_ORG`, `GH_APP_ID`,
+   required by the workflows (e.g. `GH_APP_ID`,
    `GH_APP_PRIVATE_KEY`, `GH_APP_INSTALLATION_ID`, `PORT_CLIENT_ID`,
    `PORT_CLIENT_SECRET`, `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
    `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`,

@@ -32,7 +32,7 @@ permissions:
   actions: read
 
 env:
-  GH_ORG: ${{ secrets.GH_ORG }}
+  GH_ORG: ${{ github.repository_owner }}
 
 jobs:
   create:
@@ -94,7 +94,7 @@ jobs:
         with:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          owner: ${{ secrets.GH_ORG }}
+          owner: ${{ env.GH_ORG }}
 
       - name: Validate team slug
         run: ./scripts/validate-team-name.sh "$GH_ORG" "$TEAM_SLUG"

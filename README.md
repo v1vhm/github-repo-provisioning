@@ -39,7 +39,6 @@ the following in the repository settings before running the workflows:
 - `GH_APP_ID` – GitHub App identifier used to mint installation tokens
 - `GH_APP_PRIVATE_KEY` – private key for the GitHub App
 - `GH_APP_INSTALLATION_ID` – installation ID of the GitHub App in the organization
-- `GH_ORG` – name of the GitHub organization
 - `AZURE_CLIENT_ID` – Azure AD application (service principal) client ID for OIDC
 - `AZURE_TENANT_ID` – Azure AD tenant ID
 - `AZURE_SUBSCRIPTION_ID` – Azure subscription containing the storage account
@@ -49,6 +48,8 @@ the following in the repository settings before running the workflows:
 - `PORT_CLIENT_ID` – Port OAuth client ID
 - `PORT_CLIENT_SECRET` – Port OAuth client secret
 - `COOKIECUTTER_GIT_AUTH` – (optional) token for private cookiecutter templates
+
+The GitHub organization is derived from the repository owner (`github.repository_owner`), so no separate `GH_ORG` secret is needed.
 
 ### Variables
 

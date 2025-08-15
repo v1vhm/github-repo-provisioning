@@ -68,10 +68,19 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ env.RUN_ID }}
           logMessage: "Starting validation"
+      - name: Get GitHub App token
+        id: app-token
+        uses: ./.github/actions/get-gh-app-token
+        with:
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ env.GH_ORG }}
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Parse payload
         id: parse
@@ -130,14 +139,6 @@ jobs:
         run: |
           echo "Mock run: skipping side-effecting steps"
 
-      - name: Get GitHub App token
-        id: app-token
-        uses: ./.github/actions/get-gh-app-token
-        with:
-          app_id: ${{ secrets.GH_APP_ID }}
-          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          owner: ${{ env.GH_ORG }}
-
       - name: Validate repository name
         run: ./scripts/validate-name.sh "$GH_ORG" "$REPO_NAME"
 
@@ -169,10 +170,19 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ env.RUN_ID }}
           logMessage: "Starting env-setup"
+      - name: Get GitHub App token
+        id: app-token
+        uses: ./.github/actions/get-gh-app-token
+        with:
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ env.GH_ORG }}
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Draft manifest
         id: draft
@@ -226,17 +236,19 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ env.RUN_ID }}
           logMessage: "Starting create-repo"
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Get GitHub App token
+        id: app-token
         uses: ./.github/actions/get-gh-app-token
         with:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ env.GH_ORG }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Azure login
         if: ${{ !inputs.mock }}
@@ -343,17 +355,19 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ env.RUN_ID }}
           logMessage: "Starting scaffold-service"
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Get GitHub App token
+        id: app-token
         uses: ./.github/actions/get-gh-app-token
         with:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ env.GH_ORG }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Scaffold repository
         id: scaffold
@@ -408,17 +422,19 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ env.RUN_ID }}
           logMessage: "Starting configure-repo"
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Get GitHub App token
+        id: app-token
         uses: ./.github/actions/get-gh-app-token
         with:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ env.GH_ORG }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Azure login
         if: ${{ !inputs.mock }}
@@ -516,17 +532,19 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ env.RUN_ID }}
           logMessage: "Starting tidyup"
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Get GitHub App token
+        id: app-token
         uses: ./.github/actions/get-gh-app-token
         with:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ env.GH_ORG }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Finalize manifest
         if: ${{ !inputs.mock }}

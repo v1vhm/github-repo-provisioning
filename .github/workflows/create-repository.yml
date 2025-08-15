@@ -333,6 +333,7 @@ jobs:
       REPO_NAME: ${{ needs.validation.outputs.repo_name }}
       COOKIECUTTER_TEMPLATE: ${{ needs.validation.outputs.cookiecutter_template }}
       COOKIECUTTER_CONTEXT: ${{ needs.validation.outputs.cookiecutter_context }}
+      REPO_URL: ${{ needs.create-repo.outputs.html_url }}
     steps:
       - name: Port log – start scaffold-service
         uses: port-labs/port-github-action@v1
@@ -391,12 +392,13 @@ jobs:
           logMessage: "Scaffold succeeded using template ${{ steps.scaffold.outputs.template }}"
 
   configure-repo:
-    needs: [validation, scaffold-service]
+    needs: [validation, scaffold-service, create-repo]
     runs-on: ubuntu-latest
     env:
       RUN_ID: ${{ needs.validation.outputs.run_id }}
       REPO_NAME: ${{ needs.validation.outputs.repo_name }}
       COOKIECUTTER_TEMPLATE: ${{ needs.validation.outputs.cookiecutter_template }}
+      REPO_URL: ${{ needs.create-repo.outputs.html_url }}
     steps:
       - name: Port log – start configure-repo
         uses: port-labs/port-github-action@v1
@@ -503,7 +505,7 @@ jobs:
       CREATED_AT: ${{ needs.validation.outputs.created_at }}
       MANIFEST: ${{ needs.env-setup.outputs.manifest }}
       repo_id: ${{ needs.create-repo.outputs.repo_id }}
-      html_url: ${{ needs.create-repo.outputs.html_url }}
+      REPO_URL: ${{ needs.create-repo.outputs.html_url }}
       ssh_url: ${{ needs.create-repo.outputs.ssh_url }}
     steps:
       - name: Port log – start tidyup
@@ -549,7 +551,7 @@ jobs:
           $context_lines
           status:
             id: "$repo_id"
-            htmlUrl: "$html_url"
+            htmlUrl: "$REPO_URL"
             sshUrl: "$ssh_url"
             phase: active
           MANIFEST
@@ -561,6 +563,17 @@ jobs:
           path: ${{ env.MANIFEST }}
           message: Add repository '${{ env.REPO_NAME }}' (automated via Port)
 
+      - name: Report success to Port
+        if: ${{ success() && !inputs.mock }}
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ env.RUN_ID }}
+          status: SUCCESS
+          summary: "Repository ${{ env.REPO_NAME }} created at ${{ env.REPO_URL }}"
+
       - name: Report failure to Port
         if: ${{ failure() && !inputs.mock }}
         uses: port-labs/port-github-action@v1
@@ -570,6 +583,7 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ env.RUN_ID }}
           status: FAILURE
+          summary: "Repository ${{ env.REPO_NAME }} creation failed"
           logMessage: 'Workflow failed'
 
       - name: Mark manifest failed

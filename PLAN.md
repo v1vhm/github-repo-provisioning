@@ -103,7 +103,7 @@ Having completed the initial implementation tasks (all workflows for create/upda
 
 1. **Implement “Unarchive Repository” Workflow:** *Add a counterpart to the archive workflow to restore an archived repository to active status.* This would be similar to the archive process but setting `archived=false`. We can reuse the repository Terraform module for this (since it tracks the `archived` attribute). The workflow should validate the repo is archived (skip if not), then run Terraform to unarchive. Update the manifest (remove or mark the archived flag, update timestamps) and update Port (set `"archived": false` and status back to active). This ensures a complete lifecycle for repository states is supported.
 
-2. **Reusable GitHub App Token Action:** *Completed.* A composite action `.github/actions/get-gh-app-token` now centralizes GitHub App authentication and is used across workflows.
+2. **Reusable GitHub App Token Action:** *Removed.* The composite action `.github/actions/get-gh-app-token` was dropped; workflows now generate tokens directly with `actions/create-github-app-token@v1`.
 
 3. **Centralize Manifest Update Logic:** *Completed.* The script `scripts/manifest-utils.py` provides helpers for manifest mutations and has replaced ad‑hoc Python in team↔repo workflows.
 

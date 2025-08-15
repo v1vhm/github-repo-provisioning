@@ -41,8 +41,22 @@ env:
   GH_ORG: ${{ secrets.GH_ORG }}
 
 jobs:
-  create:
+  validation:
     runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.parse.outputs.run_id }}
+      blueprint: ${{ steps.parse.outputs.blueprint }}
+      requested_by: ${{ steps.parse.outputs.requested_by }}
+      repo_name: ${{ steps.parse.outputs.repo_name }}
+      description: ${{ steps.parse.outputs.description }}
+      repo_visibility: ${{ steps.parse.outputs.repo_visibility }}
+      owning_team_slug: ${{ steps.parse.outputs.owning_team_slug }}
+      owner_team_permission: ${{ steps.parse.outputs.owner_team_permission }}
+      cookiecutter_template: ${{ steps.parse.outputs.cookiecutter_template }}
+      cookiecutter_context: ${{ steps.parse.outputs.cookiecutter_context }}
+      product_identifier: ${{ steps.parse.outputs.product_identifier }}
+      product_cost_centre: ${{ steps.parse.outputs.product_cost_centre }}
+      created_at: ${{ steps.parse.outputs.created_at }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,6 +99,21 @@ jobs:
             echo "PRODUCT_COST_CENTRE=$(echo "$PAYLOAD" | jq -r .properties.port_cost_centre)"
             echo "CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } >> "$GITHUB_ENV"
+          {
+            echo "run_id=$(echo "$PAYLOAD" | jq -r .runId)"
+            echo "blueprint=$(echo "$PAYLOAD" | jq -r .blueprint)"
+            echo "requested_by=$(echo "$PAYLOAD" | jq -r .requestedBy)"
+            echo "repo_name=$(echo "$PAYLOAD" | jq -r .properties.port_service_identifier)"
+            echo "description=$(echo "$PAYLOAD" | jq -r .properties.port_service_description)"
+            echo "repo_visibility=$(echo "$PAYLOAD" | jq -r .properties.port_repo_visibility)"
+            echo "owning_team_slug=$(echo "$PAYLOAD" | jq -r .properties.port_owning_team_slug)"
+            echo "owner_team_permission=$(echo "$PAYLOAD" | jq -r .properties.port_owner_team_permission)"
+            echo "cookiecutter_template=$(echo "$PAYLOAD" | jq -r .properties.cookiecutter_template)"
+            echo "cookiecutter_context=$COMBINED_CONTEXT"
+            echo "product_identifier=$(echo "$PAYLOAD" | jq -r .properties.port_product_identifier)"
+            echo "product_cost_centre=$(echo "$PAYLOAD" | jq -r .properties.port_cost_centre)"
+            echo "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Mock run notice
         if: ${{ inputs.mock }}
@@ -103,7 +132,7 @@ jobs:
         id: get-user-id
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: echo "user-id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
+        run: echo "user-id=$(gh api \"/users/${{ steps.app-token.outputs.app-slug }}%5Bbot%5D\" --jq .id)" >> "$GITHUB_OUTPUT"
 
       - name: Configure git user
         run: |
@@ -113,7 +142,33 @@ jobs:
       - name: Validate repository name
         run: ./scripts/validate-name.sh "$GH_ORG" "$REPO_NAME"
 
+  env-setup:
+    needs: validation
+    runs-on: ubuntu-latest
+    env:
+      RUN_ID: ${{ needs.validation.outputs.run_id }}
+      BLUEPRINT: ${{ needs.validation.outputs.blueprint }}
+      REQUESTED_BY: ${{ needs.validation.outputs.requested_by }}
+      REPO_NAME: ${{ needs.validation.outputs.repo_name }}
+      DESCRIPTION: ${{ needs.validation.outputs.description }}
+      REPO_VISIBILITY: ${{ needs.validation.outputs.repo_visibility }}
+      OWNING_TEAM_SLUG: ${{ needs.validation.outputs.owning_team_slug }}
+      OWNER_TEAM_PERMISSION: ${{ needs.validation.outputs.owner_team_permission }}
+      COOKIECUTTER_TEMPLATE: ${{ needs.validation.outputs.cookiecutter_template }}
+      COOKIECUTTER_CONTEXT: ${{ needs.validation.outputs.cookiecutter_context }}
+      PRODUCT_IDENTIFIER: ${{ needs.validation.outputs.product_identifier }}
+      PRODUCT_COST_CENTRE: ${{ needs.validation.outputs.product_cost_centre }}
+      CREATED_AT: ${{ needs.validation.outputs.created_at }}
+    outputs:
+      manifest: ${{ steps.draft.outputs.manifest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Draft manifest
+        id: draft
         run: |
           mkdir -p repositories/manifests
           context_lines=$(echo "$COOKIECUTTER_CONTEXT" | jq -r 'to_entries[] | "      \(.key): \"\(.value)\""')
@@ -137,7 +192,8 @@ jobs:
           status:
             phase: creating
           MANIFEST
-                    echo "MANIFEST=repositories/manifests/${REPO_NAME}.yaml" >> "$GITHUB_ENV"
+          echo "MANIFEST=repositories/manifests/${REPO_NAME}.yaml" >> "$GITHUB_ENV"
+          echo "manifest=repositories/manifests/${REPO_NAME}.yaml" >> "$GITHUB_OUTPUT"
 
       - name: Azure login
         if: ${{ !inputs.mock }}
@@ -150,6 +206,33 @@ jobs:
       - name: Setup Terraform
         if: ${{ !inputs.mock }}
         uses: hashicorp/setup-terraform@v3
+
+  create-repo:
+    needs: [validation, env-setup]
+    runs-on: ubuntu-latest
+    env:
+      RUN_ID: ${{ needs.validation.outputs.run_id }}
+      REPO_NAME: ${{ needs.validation.outputs.repo_name }}
+      DESCRIPTION: ${{ needs.validation.outputs.description }}
+      REPO_VISIBILITY: ${{ needs.validation.outputs.repo_visibility }}
+      OWNING_TEAM_SLUG: ${{ needs.validation.outputs.owning_team_slug }}
+      OWNER_TEAM_PERMISSION: ${{ needs.validation.outputs.owner_team_permission }}
+    outputs:
+      repo_id: ${{ steps.apply.outputs.repo_id }}
+      html_url: ${{ steps.apply.outputs.html_url }}
+      ssh_url: ${{ steps.apply.outputs.ssh_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get GitHub App token
+        uses: ./.github/actions/get-gh-app-token
+        with:
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ secrets.GH_ORG }}
 
       - name: Terraform init
         if: ${{ !inputs.mock }}
@@ -169,6 +252,7 @@ jobs:
             -backend-config="use_azuread_auth=true"
 
       - name: Terraform apply
+        id: apply
         if: ${{ !inputs.mock }}
         working-directory: repositories/modules/repo
         env:
@@ -186,17 +270,44 @@ jobs:
             -var "owner_team_slug=$OWNING_TEAM_SLUG" \
             -var "owner_perm=$OWNER_TEAM_PERMISSION"
           terraform output -json > tf.json
+          repo_id=$(jq -r .repo_id.value tf.json)
+          html_url=$(jq -r .html_url.value tf.json)
+          ssh_url=$(jq -r .ssh_url.value tf.json)
           {
-            echo "repo_id=$(jq -r .repo_id.value tf.json)"
-            echo "html_url=$(jq -r .html_url.value tf.json)"
-            echo "ssh_url=$(jq -r .ssh_url.value tf.json)"
-            echo "repo_created=true"
+            echo "repo_id=$repo_id"
+            echo "html_url=$html_url"
+            echo "ssh_url=$ssh_url"
           } >> "$GITHUB_ENV"
+          {
+            echo "repo_id=$repo_id"
+            echo "html_url=$html_url"
+            echo "ssh_url=$ssh_url"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Cleanup Terraform
         if: ${{ always() && !inputs.mock }}
         working-directory: repositories/modules/repo
         run: rm -rf .terraform terraform.tfstate*
+
+  scaffold-service:
+    needs: [validation, create-repo]
+    runs-on: ubuntu-latest
+    env:
+      REPO_NAME: ${{ needs.validation.outputs.repo_name }}
+      COOKIECUTTER_TEMPLATE: ${{ needs.validation.outputs.cookiecutter_template }}
+      COOKIECUTTER_CONTEXT: ${{ needs.validation.outputs.cookiecutter_context }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get GitHub App token
+        uses: ./.github/actions/get-gh-app-token
+        with:
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ secrets.GH_ORG }}
 
       - name: Scaffold repository
         if: ${{ !inputs.mock }}
@@ -217,6 +328,25 @@ jobs:
           git branch -M main
           git push origin main
 
+  configure-repo:
+    needs: [validation, scaffold-service]
+    runs-on: ubuntu-latest
+    env:
+      REPO_NAME: ${{ needs.validation.outputs.repo_name }}
+      COOKIECUTTER_TEMPLATE: ${{ needs.validation.outputs.cookiecutter_template }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get GitHub App token
+        uses: ./.github/actions/get-gh-app-token
+        with:
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ secrets.GH_ORG }}
+
       - name: Configure repository
         if: ${{ !inputs.mock }}
         env:
@@ -227,16 +357,12 @@ jobs:
           git clone "$COOKIECUTTER_TEMPLATE" template-repo
           mkdir tf-config
           yq -o=json template-repo/.provisioning/repository-config.yml > tf-config/config.json
-          # Build a map of secret names to values. Each item in the config's
-          # `secrets` array specifies a `ref` pointing either to a workflow
-          # secret (`source: workflow_secret`) or an environment variable
-          # (`source: env`).
           jq --argjson s "$GH_SECRETS" '
             [.secrets // [] | .[] | select(.source != "none") |
               {key: .name,
                value: (if .source == "workflow_secret"
-                       then $s[.ref]         # look up workflow secret
-                       else env[.ref]        # read env var by name
+                       then $s[.ref]
+                       else env[.ref]
                       end)}] | from_entries
           ' tf-config/config.json > tf-config/secret-values.json
           cat > tf-config/main.tf <<'TF'
@@ -276,6 +402,38 @@ jobs:
         if: ${{ inputs.mock }}
         run: |
           echo "Mock run: skipping repository configuration"
+
+  tidyup:
+    needs: [validation, env-setup, create-repo, configure-repo]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    env:
+      RUN_ID: ${{ needs.validation.outputs.run_id }}
+      REQUESTED_BY: ${{ needs.validation.outputs.requested_by }}
+      REPO_NAME: ${{ needs.validation.outputs.repo_name }}
+      DESCRIPTION: ${{ needs.validation.outputs.description }}
+      REPO_VISIBILITY: ${{ needs.validation.outputs.repo_visibility }}
+      OWNING_TEAM_SLUG: ${{ needs.validation.outputs.owning_team_slug }}
+      OWNER_TEAM_PERMISSION: ${{ needs.validation.outputs.owner_team_permission }}
+      COOKIECUTTER_TEMPLATE: ${{ needs.validation.outputs.cookiecutter_template }}
+      COOKIECUTTER_CONTEXT: ${{ needs.validation.outputs.cookiecutter_context }}
+      CREATED_AT: ${{ needs.validation.outputs.created_at }}
+      MANIFEST: ${{ needs.env-setup.outputs.manifest }}
+      repo_id: ${{ needs.create-repo.outputs.repo_id }}
+      html_url: ${{ needs.create-repo.outputs.html_url }}
+      ssh_url: ${{ needs.create-repo.outputs.ssh_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get GitHub App token
+        uses: ./.github/actions/get-gh-app-token
+        with:
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ secrets.GH_ORG }}
 
       - name: Finalize manifest
         if: ${{ !inputs.mock }}

@@ -1,0 +1,181 @@
+name: Add environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      port_payload:
+        description: 'Port JSON payload'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  actions: read
+
+env:
+  GH_ORG: ${{ github.repository_owner }}
+
+jobs:
+  add-environment:
+    runs-on: ubuntu-latest
+    env:
+      RUN_ID: ${{ fromJson(inputs.port_payload).runId }}
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ env.GH_ORG }}
+
+      - name: Export token
+        run: |
+          echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> "$GITHUB_ENV"
+          echo "GH_TOKEN=${{ steps.app-token.outputs.token }}" >> "$GITHUB_ENV"
+
+      - name: Configure git user
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          user_id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)
+          git config --global user.name '${{ steps.app-token.outputs.app-slug }}[bot]'
+          git config --global user.email "${user_id}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
+
+      - name: Configure git remote
+        run: |
+          if [ -d .git ]; then
+            git remote set-url origin "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${GITHUB_REPOSITORY}.git"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Parse payload
+        id: parse
+        run: |
+          set -euo pipefail
+          PAYLOAD='${{ inputs.port_payload }}'
+          echo "$PAYLOAD" | jq -e '.runId,
+            .github_repository,
+            .state_file_container,
+            .environment_type,
+            .managed_identity_client_id,
+            .environment_location,
+            .environment_resource_group,
+            .state_file_resource_group,
+            .state_file_storage_account' >/dev/null
+          {
+            echo "run_id=$(echo "$PAYLOAD" | jq -r .runId)"
+            echo "github_repository=$(echo "$PAYLOAD" | jq -r .github_repository)"
+            echo "state_file_container=$(echo "$PAYLOAD" | jq -r .state_file_container)"
+            echo "environment_type=$(echo "$PAYLOAD" | jq -r .environment_type)"
+            echo "managed_identity_client_id=$(echo "$PAYLOAD" | jq -r .managed_identity_client_id)"
+            echo "environment_location=$(echo "$PAYLOAD" | jq -r .environment_location)"
+            echo "environment_resource_group=$(echo "$PAYLOAD" | jq -r .environment_resource_group)"
+            echo "state_file_resource_group=$(echo "$PAYLOAD" | jq -r .state_file_resource_group)"
+            echo "state_file_storage_account=$(echo "$PAYLOAD" | jq -r .state_file_storage_account)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Port log – start
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ steps.parse.outputs.run_id }}
+          logMessage: "Starting environment addition"
+
+      - name: Clone target repository
+        run: |
+          git clone "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ steps.parse.outputs.github_repository }}.git" service-repo
+
+      - name: Add environment files
+        run: |
+          env_dir="service-repo/env/${{ steps.parse.outputs.environment_type }}"
+          mkdir -p "$env_dir"
+          cat > "$env_dir/${{ steps.parse.outputs.environment_type }}.state.config" <<EOF
+          resource_group_name  = "${{ steps.parse.outputs.state_file_resource_group }}"
+          storage_account_name = "${{ steps.parse.outputs.state_file_storage_account }}"
+          container_name       = "${{ steps.parse.outputs.state_file_container }}"
+          key                  = "${{ steps.parse.outputs.environment_type }}.tfstate"
+          EOF
+          cat > "$env_dir/${{ steps.parse.outputs.environment_type }}.tfvars" <<EOF
+          environment    = "${{ steps.parse.outputs.environment_type }}"
+          location       = "${{ steps.parse.outputs.environment_location }}"
+          resource_group = "${{ steps.parse.outputs.environment_resource_group }}"
+          EOF
+
+      - name: Commit environment files
+        run: |
+          cd service-repo
+          git add env/${{ steps.parse.outputs.environment_type }}
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Add environment '${{ steps.parse.outputs.environment_type }}'"
+            git push origin HEAD
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        working-directory: repositories/modules/environment
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          terraform init \
+            -backend-config=../../../service-repo/env/${{ steps.parse.outputs.environment_type }}/${{ steps.parse.outputs.environment_type }}.state.config \
+            -backend-config=use_azuread_auth=true
+
+      - name: Terraform apply
+        working-directory: repositories/modules/environment
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          terraform apply -auto-approve \
+            -var "repository=${{ steps.parse.outputs.github_repository }}" \
+            -var "environment_name=${{ steps.parse.outputs.environment_type }}" \
+            -var "managed_identity_client_id=${{ steps.parse.outputs.managed_identity_client_id }}"
+          terraform output -json > tf.json
+
+      - name: Commit workflow changes
+        uses: ./.github/actions/commit-yaml
+        with:
+          path: .
+          message: "Record environment workflow changes"
+
+      - name: Report success to Port
+        if: ${{ success() }}
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ steps.parse.outputs.run_id }}
+          status: SUCCESS
+          summary: "Environment '${{ steps.parse.outputs.environment_type }}' added to ${{ steps.parse.outputs.github_repository }}"
+
+      - name: Report failure to Port
+        if: ${{ failure() }}
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ steps.parse.outputs.run_id }}
+          status: FAILURE
+          summary: "Environment '${{ steps.parse.outputs.environment_type }}' failed"

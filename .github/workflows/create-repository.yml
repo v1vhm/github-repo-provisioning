@@ -195,18 +195,6 @@ jobs:
           echo "MANIFEST=repositories/manifests/${REPO_NAME}.yaml" >> "$GITHUB_ENV"
           echo "manifest=repositories/manifests/${REPO_NAME}.yaml" >> "$GITHUB_OUTPUT"
 
-      - name: Azure login
-        if: ${{ !inputs.mock }}
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Setup Terraform
-        if: ${{ !inputs.mock }}
-        uses: hashicorp/setup-terraform@v3
-
   create-repo:
     needs: [validation, env-setup]
     runs-on: ubuntu-latest
@@ -233,6 +221,18 @@ jobs:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ secrets.GH_ORG }}
+
+      - name: Azure login
+        if: ${{ !inputs.mock }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        if: ${{ !inputs.mock }}
+        uses: hashicorp/setup-terraform@v3
 
       - name: Terraform init
         if: ${{ !inputs.mock }}
@@ -346,6 +346,18 @@ jobs:
           app_id: ${{ secrets.GH_APP_ID }}
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ secrets.GH_ORG }}
+
+      - name: Azure login
+        if: ${{ !inputs.mock }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        if: ${{ !inputs.mock }}
+        uses: hashicorp/setup-terraform@v3
 
       - name: Configure repository
         if: ${{ !inputs.mock }}

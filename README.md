@@ -5,7 +5,6 @@ This repository automates the creation and management of GitHub repositories, te
 ## Repository Structure
 - `repositories/` - Terraform module to manage GitHub repositories.
 - `teams/` - Terraform module for GitHub teams.
-- `environments/` - Terraform module for environment configurations.
 - `.github/workflows/` - GitHub Actions workflows.
 - `.github/actions/` - Reusable GitHub Actions.
 

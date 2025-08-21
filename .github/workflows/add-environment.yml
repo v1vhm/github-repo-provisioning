@@ -8,6 +8,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   id-token: write
@@ -19,6 +23,7 @@ env:
 jobs:
   add-environment:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       RUN_ID: ${{ fromJson(inputs.port_payload).runId }}
     steps:
@@ -31,20 +36,26 @@ jobs:
           owner: ${{ env.GH_ORG }}
 
       - name: Export token
+        shell: bash
         run: |
+          set -euo pipefail; IFS=$'\n\t'
           echo "GITHUB_TOKEN=${{ steps.app-token.outputs.token }}" >> "$GITHUB_ENV"
           echo "GH_TOKEN=${{ steps.app-token.outputs.token }}" >> "$GITHUB_ENV"
 
       - name: Configure git user
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        shell: bash
         run: |
+          set -euo pipefail; IFS=$'\n\t'
           user_id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)
           git config --global user.name '${{ steps.app-token.outputs.app-slug }}[bot]'
           git config --global user.email "${user_id}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
 
       - name: Configure git remote
+        shell: bash
         run: |
+          set -euo pipefail; IFS=$'\n\t'
           if [ -d .git ]; then
             git remote set-url origin "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${GITHUB_REPOSITORY}.git"
           fi
@@ -57,8 +68,9 @@ jobs:
 
       - name: Parse payload
         id: parse
+        shell: bash
         run: |
-          set -euo pipefail
+          set -euo pipefail; IFS=$'\n\t'
           PAYLOAD='${{ inputs.port_payload }}'
           echo "$PAYLOAD" | jq -e '.runId,
             .github_repository,
@@ -84,7 +96,9 @@ jobs:
             echo "state_file_storage_account=$(echo "$PAYLOAD" | jq -r '.state_file_storage_account // ""')"
           } >> "$GITHUB_OUTPUT"
       - name: Derive identifiers
+        shell: bash
         run: |
+          set -euo pipefail; IFS=$'\n\t'
           {
             echo "REPO_NAME=$(basename \"${{ steps.parse.outputs.github_repository }}\")"
             echo "ENV_NAME=${{ steps.parse.outputs.environment_type }}"
@@ -101,11 +115,15 @@ jobs:
           logMessage: "Starting environment addition"
 
       - name: Clone target repository
+        shell: bash
         run: |
+          set -euo pipefail; IFS=$'\n\t'
           git clone "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ steps.parse.outputs.github_repository }}.git" service-repo
 
       - name: Add environment files
+        shell: bash
         run: |
+          set -euo pipefail; IFS=$'\n\t'
           env_dir="service-repo/env/${{ steps.parse.outputs.environment_type }}"
           mkdir -p "$env_dir"
           cat > "$env_dir/${{ steps.parse.outputs.environment_type }}.state.config" <<EOF
@@ -121,7 +139,9 @@ jobs:
           EOF
 
       - name: Commit environment files
+        shell: bash
         run: |
+          set -euo pipefail; IFS=$'\n\t'
           cd service-repo
           git add env/${{ steps.parse.outputs.environment_type }}
           if git diff --staged --quiet; then
@@ -142,7 +162,9 @@ jobs:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        shell: bash
         run: |
+          set -euo pipefail; IFS=$'\n\t'
           terraform init \
             -backend-config=../../../service-repo/env/${{ steps.parse.outputs.environment_type }}/${{ steps.parse.outputs.environment_type }}.state.config \
             -backend-config=use_azuread_auth=true
@@ -155,15 +177,18 @@ jobs:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        shell: bash
         run: |
+          set -euo pipefail; IFS=$'\n\t'
           terraform apply -auto-approve \
             -var "repository=${{ steps.parse.outputs.github_repository }}" \
             -var "environment_name=${{ steps.parse.outputs.environment_type }}" \
             -var "managed_identity_client_id=${{ steps.parse.outputs.managed_identity_client_id }}"
           terraform output -json > tf.json
       - name: Update repository manifest
+        shell: bash
         run: |
-          set -euo pipefail
+          set -euo pipefail; IFS=$'\n\t'
           pip install pyyaml >/dev/null
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           export REPO_NAME ENV_NAME NOW

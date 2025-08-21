@@ -62,20 +62,17 @@ jobs:
           PAYLOAD='${{ inputs.port_payload }}'
           echo "$PAYLOAD" | jq -e '.runId,
             .github_repository,
-            .state_file_container,
             .environment_type,
             .request_identifier,
             .environment_identifier,
             .service_identifier,
             .managed_identity_client_id,
             .environment_location,
-            .environment_resource_group,
-            .state_file_resource_group,
-            .state_file_storage_account' >/dev/null
+            .environment_resource_group' >/dev/null
           {
             echo "run_id=$(echo "$PAYLOAD" | jq -r .runId)"
             echo "github_repository=$(echo "$PAYLOAD" | jq -r .github_repository)"
-            echo "state_file_container=$(echo "$PAYLOAD" | jq -r .state_file_container)"
+            echo "state_file_container=$(echo "$PAYLOAD" | jq -r '.state_file_container // ""')"
             echo "environment_type=$(echo "$PAYLOAD" | jq -r .environment_type)"
             echo "request_identifier=$(echo "$PAYLOAD" | jq -r .request_identifier)"
             echo "environment_identifier=$(echo "$PAYLOAD" | jq -r .environment_identifier)"
@@ -83,8 +80,8 @@ jobs:
             echo "managed_identity_client_id=$(echo "$PAYLOAD" | jq -r .managed_identity_client_id)"
             echo "environment_location=$(echo "$PAYLOAD" | jq -r .environment_location)"
             echo "environment_resource_group=$(echo "$PAYLOAD" | jq -r .environment_resource_group)"
-            echo "state_file_resource_group=$(echo "$PAYLOAD" | jq -r .state_file_resource_group)"
-            echo "state_file_storage_account=$(echo "$PAYLOAD" | jq -r .state_file_storage_account)"
+            echo "state_file_resource_group=$(echo "$PAYLOAD" | jq -r '.state_file_resource_group // ""')"
+            echo "state_file_storage_account=$(echo "$PAYLOAD" | jq -r '.state_file_storage_account // ""')"
           } >> "$GITHUB_OUTPUT"
       - name: Derive identifiers
         run: |

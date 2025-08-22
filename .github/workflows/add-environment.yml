@@ -129,6 +129,17 @@ jobs:
           set -euo pipefail; IFS=$'\n\t'
           git clone "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ steps.parse.outputs.github_repository }}.git" service-repo
 
+      - name: Create feature branch
+        env:
+          GH_TOKEN: ${{ env.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail; IFS=$'\n\t'
+          TARGET_BRANCH="add-env-${{ steps.parse.outputs.environment_identifier }}-${{ github.run_id }}"
+          cd service-repo
+          git checkout -b "$TARGET_BRANCH"
+          echo "TARGET_BRANCH=$TARGET_BRANCH" >> "$GITHUB_ENV"
+
       - name: Add environment files
         shell: bash
         run: |
@@ -159,6 +170,8 @@ jobs:
           resource_group = "${{ steps.parse.outputs.environment_resource_group }}"
           EOF
       - name: Commit environment files
+        env:
+          GH_TOKEN: ${{ env.GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail; IFS=$'\n\t'
@@ -168,8 +181,24 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "Add environment '${{ steps.parse.outputs.environment_identifier }}'"
-            git push origin HEAD
+            git push origin "$TARGET_BRANCH"
+            echo "CHANGED=1" >> "$GITHUB_ENV"
           fi
+
+      - name: Open pull request
+        if: env.CHANGED == '1'
+        env:
+          GH_TOKEN: ${{ env.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail; IFS=$'\n\t'
+          cd service-repo
+          default_branch=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+          gh pr create \
+            --head "$TARGET_BRANCH" \
+            --base "$default_branch" \
+            --title "Add environment '${{ steps.parse.outputs.environment_identifier }}'" \
+            --body "Automated addition of environment '${{ steps.parse.outputs.environment_identifier }}'."
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

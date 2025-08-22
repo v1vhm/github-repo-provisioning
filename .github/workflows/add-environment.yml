@@ -176,7 +176,8 @@ jobs:
         run: |
           set -euo pipefail; IFS=$'\n\t'
           cd service-repo
-          git add env/${{ steps.parse.outputs.environment_identifier }}
+          git add env/${{ steps.parse.outputs.environment_identifier }}/${{ steps.parse.outputs.environment_identifier }}.tfvars
+          git add -f env/${{ steps.parse.outputs.environment_identifier }}/${{ steps.parse.outputs.environment_identifier }}.state.config
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else

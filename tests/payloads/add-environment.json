@@ -1,0 +1,6 @@
+{
+  "ref": "refs/heads/main",
+  "inputs": {
+    "port_payload": "{\"runId\":\"R-401\",\"request_identifier\":\"REQ-401\",\"github_repository\":\"my-org/sample-repo\",\"environment_identifier\":\"dev\",\"service_identifier\":\"svc1\",\"environment_location\":\"westeurope\",\"environment_resource_group\":\"rg-dev\",\"managed_identity_client_id\":\"11111111-2222-3333-4444-555555555555\",\"environment_type\":\"development\",\"state_file_container\":\"tfstate\",\"state_file_resource_group\":\"rg-state\",\"state_file_storage_account\":\"statestorage\"}"
+  }
+}

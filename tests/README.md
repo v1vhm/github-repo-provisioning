@@ -22,6 +22,14 @@ run.
        --secret-file .secrets
    ```
 
+   To test the add-environment workflow:
+
+   ```bash
+   act -W .github/workflows/add-environment.yml \
+       -e tests/payloads/add-environment.json \
+       --secret-file .secrets
+   ```
+
 3. To execute a "mock" run that skips external calls, append
    `--dryrun`:
 

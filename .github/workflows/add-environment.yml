@@ -86,6 +86,7 @@ jobs:
             echo "github_repository=$(echo "$PAYLOAD" | jq -r .github_repository)"
             echo "state_file_container=$(echo "$PAYLOAD" | jq -r '.state_file_container // ""')"
             echo "environment_type=$(echo "$PAYLOAD" | jq -r .environment_type)"
+            echo "env_name=$(echo "$PAYLOAD" | jq -r .environment_identifier)"
             echo "request_identifier=$(echo "$PAYLOAD" | jq -r .request_identifier)"
             echo "environment_identifier=$(echo "$PAYLOAD" | jq -r .environment_identifier)"
             echo "service_identifier=$(echo "$PAYLOAD" | jq -r .service_identifier)"
@@ -101,9 +102,9 @@ jobs:
           set -euo pipefail; IFS=$'\n\t'
           {
             echo "REPO_NAME=$(basename \"${{ steps.parse.outputs.github_repository }}\")"
-            echo "ENV_NAME=${{ steps.parse.outputs.environment_type }}"
-            echo "WORKLOAD_ID=$(basename \"${{ steps.parse.outputs.github_repository }}\")-${{ steps.parse.outputs.environment_type }}"
-          } >> "$GITHUB_ENV"
+            echo "ENV_NAME=${{ steps.parse.outputs.environment_identifier }}"
+            echo "WORKLOAD_ID=$(basename \"${{ steps.parse.outputs.github_repository }}\")-${{ steps.parse.outputs.environment_identifier }}"
+            } >> "$GITHUB_ENV"
 
       - name: Port log – start
         uses: port-labs/port-github-action@v1
@@ -124,16 +125,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail; IFS=$'\n\t'
-          env_dir="service-repo/env/${{ steps.parse.outputs.environment_type }}"
+          env_dir="service-repo/env/${{ steps.parse.outputs.environment_identifier }}"
           mkdir -p "$env_dir"
-          cat > "$env_dir/${{ steps.parse.outputs.environment_type }}.state.config" <<EOF
+          cat > "$env_dir/${{ steps.parse.outputs.environment_identifier }}.state.config" <<EOF
           resource_group_name  = "${{ steps.parse.outputs.state_file_resource_group }}"
           storage_account_name = "${{ steps.parse.outputs.state_file_storage_account }}"
           container_name       = "${{ steps.parse.outputs.state_file_container }}"
-          key                  = "${{ steps.parse.outputs.environment_type }}.tfstate"
+          key                  = "${{ steps.parse.outputs.environment_identifier }}.tfstate"
           EOF
-          cat > "$env_dir/${{ steps.parse.outputs.environment_type }}.tfvars" <<EOF
-          environment    = "${{ steps.parse.outputs.environment_type }}"
+          cat > "$env_dir/${{ steps.parse.outputs.environment_identifier }}.tfvars" <<EOF
+          environment    = "${{ steps.parse.outputs.environment_identifier }}"
           location       = "${{ steps.parse.outputs.environment_location }}"
           resource_group = "${{ steps.parse.outputs.environment_resource_group }}"
           EOF
@@ -143,11 +144,11 @@ jobs:
         run: |
           set -euo pipefail; IFS=$'\n\t'
           cd service-repo
-          git add env/${{ steps.parse.outputs.environment_type }}
+          git add env/${{ steps.parse.outputs.environment_identifier }}
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Add environment '${{ steps.parse.outputs.environment_type }}'"
+            git commit -m "Add environment '${{ steps.parse.outputs.environment_identifier }}'"
             git push origin HEAD
           fi
 
@@ -166,7 +167,7 @@ jobs:
         run: |
           set -euo pipefail; IFS=$'\n\t'
           terraform init \
-            -backend-config=../../../service-repo/env/${{ steps.parse.outputs.environment_type }}/${{ steps.parse.outputs.environment_type }}.state.config \
+            -backend-config=../../../service-repo/env/${{ steps.parse.outputs.environment_identifier }}/${{ steps.parse.outputs.environment_identifier }}.state.config \
             -backend-config=use_azuread_auth=true
 
       - name: Terraform apply
@@ -182,7 +183,7 @@ jobs:
           set -euo pipefail; IFS=$'\n\t'
           terraform apply -auto-approve \
             -var "repository=${{ steps.parse.outputs.github_repository }}" \
-            -var "environment_name=${{ steps.parse.outputs.environment_type }}" \
+            -var "environment_name=${{ steps.parse.outputs.environment_identifier }}" \
             -var "managed_identity_client_id=${{ steps.parse.outputs.managed_identity_client_id }}"
           terraform output -json > tf.json
       - name: Update repository manifest
@@ -250,7 +251,7 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ steps.parse.outputs.run_id }}
           status: SUCCESS
-          summary: "Environment '${{ steps.parse.outputs.environment_type }}' added to ${{ steps.parse.outputs.github_repository }}"
+          summary: "Environment '${{ steps.parse.outputs.environment_identifier }}' added to ${{ steps.parse.outputs.github_repository }}"
 
       - name: Report failure to Port
         if: ${{ failure() }}
@@ -261,4 +262,4 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ steps.parse.outputs.run_id }}
           status: FAILURE
-          summary: "Environment '${{ steps.parse.outputs.environment_type }}' failed"
+          summary: "Environment '${{ steps.parse.outputs.environment_identifier }}' failed"

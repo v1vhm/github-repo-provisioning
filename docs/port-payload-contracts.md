@@ -92,3 +92,18 @@ The repository name is derived as `<port_product_identifier>-<port_service_ident
 - `properties.force` – proceed even if the team still has repository access
 - `properties.note` – text appended to commit message and Port log
 
+### add-environment.yml
+**Required**
+- `github_repository` – repository receiving the environment
+- `environment_identifier` – name of the environment to create
+- `service_identifier` – service linked to the environment
+- `environment_location` – deployment region for the environment
+- `environment_resource_group` – Azure resource group backing the environment
+- `managed_identity_client_id` – client ID for the managed identity
+- `request_identifier` – Port request identifier
+- `environment_type` – type of environment (`development`, `production`, etc.)
+**Optional**
+- `state_file_container` – Azure storage container for Terraform state
+- `state_file_resource_group` – resource group for Terraform state
+- `state_file_storage_account` – storage account for Terraform state
+

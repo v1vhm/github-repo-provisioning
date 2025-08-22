@@ -2,30 +2,32 @@ apiVersion: v1
 kind: GitHubRepository
 metadata:
   name: testpr-infra
-  createdAt: "2025-08-20T11:37:33Z"
-  createdBy: "matt@v1vhm.onmicrosoft.com"
+  createdAt: '2025-08-20T11:37:33Z'
+  createdBy: matt@v1vhm.onmicrosoft.com
 spec:
-  description: "null"
-  visibility: "public"
+  description: 'null'
+  visibility: public
   ownerTeam:
-    slug: "cloud-platform-team"
-    permission: "push"
-  environments: []
+    slug: cloud-platform-team
+    permission: push
+  environments:
+  - testpr_dev_uksouth
   template:
-    source: "https://github.com/v1vhm/template-terraform-service"
+    source: https://github.com/v1vhm/template-terraform-service
     context:
-      port_product_identifier: "TESTPR"
-      port_service_identifier: "testpr-infra"
-      port_service_name: "infra"
-      port_service_description: "null"
-      port_cost_centre: "123456"
-      port_owning_team: "Cloud Platform Team"
-      port_owning_team_identifier: "cloud_platform_team"
-      port_repo_visibility: "public"
-      port_owning_team_slug: "cloud-platform-team"
-      port_owner_team_permission: "push"
+      port_product_identifier: TESTPR
+      port_service_identifier: testpr-infra
+      port_service_name: infra
+      port_service_description: 'null'
+      port_cost_centre: '123456'
+      port_owning_team: Cloud Platform Team
+      port_owning_team_identifier: cloud_platform_team
+      port_repo_visibility: public
+      port_owning_team_slug: cloud-platform-team
+      port_owner_team_permission: push
 status:
-  id: "R_kgDOPhICWA"
-  htmlUrl: "https://github.com/v1vhm/testpr-infra"
-  sshUrl: "git@github.com:v1vhm/testpr-infra.git"
+  id: R_kgDOPhICWA
+  htmlUrl: https://github.com/v1vhm/testpr-infra
+  sshUrl: git@github.com:v1vhm/testpr-infra.git
   phase: active
+  lastUpdatedAt: '2025-08-22T08:58:17Z'

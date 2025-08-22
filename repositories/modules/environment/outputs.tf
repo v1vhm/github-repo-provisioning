@@ -1,7 +1,7 @@
-output "environment_id" {
-  value = github_repository_environment.this.id
+output "environment_ids" {
+  value = { for k, env in github_repository_environment.this : k => env.id }
 }
 
-output "environment_name" {
-  value = github_repository_environment.this.environment
+output "environment_names" {
+  value = { for k, env in github_repository_environment.this : k => env.environment }
 }

@@ -72,15 +72,15 @@ jobs:
         run: |
           set -euo pipefail; IFS=$'\n\t'
           PAYLOAD='${{ inputs.port_payload }}'
-          echo "$PAYLOAD" | jq -e '.runId,
-            .github_repository,
-            .environment_type,
+            echo "$PAYLOAD" | jq -e '.runId,
             .request_identifier,
+            .github_repository,
             .environment_identifier,
             .service_identifier,
             .managed_identity_client_id,
             .environment_location,
-            .environment_resource_group' >/dev/null
+            .environment_resource_group,
+            .environment_type' >/dev/null
           {
             echo "run_id=$(echo "$PAYLOAD" | jq -r .runId)"
             echo "github_repository=$(echo "$PAYLOAD" | jq -r .github_repository)"
@@ -96,6 +96,14 @@ jobs:
             echo "state_file_resource_group=$(echo "$PAYLOAD" | jq -r '.state_file_resource_group // ""')"
             echo "state_file_storage_account=$(echo "$PAYLOAD" | jq -r '.state_file_storage_account // ""')"
           } >> "$GITHUB_OUTPUT"
+      - name: Validate environment identifier
+        shell: bash
+        run: |
+          set -euo pipefail; IFS=$'\n\t'
+          if [ -z "${{ steps.parse.outputs.environment_identifier }}" ]; then
+            echo "::error::environment_identifier is required"
+            exit 1
+          fi
       - name: Derive identifiers
         shell: bash
         run: |
@@ -127,18 +135,29 @@ jobs:
           set -euo pipefail; IFS=$'\n\t'
           env_dir="service-repo/env/${{ steps.parse.outputs.environment_identifier }}"
           mkdir -p "$env_dir"
-          cat > "$env_dir/${{ steps.parse.outputs.environment_identifier }}.state.config" <<EOF
-          resource_group_name  = "${{ steps.parse.outputs.state_file_resource_group }}"
-          storage_account_name = "${{ steps.parse.outputs.state_file_storage_account }}"
-          container_name       = "${{ steps.parse.outputs.state_file_container }}"
-          key                  = "${{ steps.parse.outputs.environment_identifier }}.tfstate"
-          EOF
+          {
+            if [ -n "${{ steps.parse.outputs.state_file_resource_group }}" ]; then
+              echo "resource_group_name  = \"${{ steps.parse.outputs.state_file_resource_group }}\""
+            else
+              echo "# resource_group_name  = \"\""
+            fi
+            if [ -n "${{ steps.parse.outputs.state_file_storage_account }}" ]; then
+              echo "storage_account_name = \"${{ steps.parse.outputs.state_file_storage_account }}\""
+            else
+              echo "# storage_account_name = \"\""
+            fi
+            if [ -n "${{ steps.parse.outputs.state_file_container }}" ]; then
+              echo "container_name       = \"${{ steps.parse.outputs.state_file_container }}\""
+            else
+              echo "# container_name       = \"\""
+            fi
+            echo "key                  = \"${{ steps.parse.outputs.environment_identifier }}.tfstate\""
+          } > "$env_dir/${{ steps.parse.outputs.environment_identifier }}.state.config"
           cat > "$env_dir/${{ steps.parse.outputs.environment_identifier }}.tfvars" <<EOF
           environment    = "${{ steps.parse.outputs.environment_identifier }}"
           location       = "${{ steps.parse.outputs.environment_location }}"
           resource_group = "${{ steps.parse.outputs.environment_resource_group }}"
           EOF
-
       - name: Commit environment files
         shell: bash
         run: |

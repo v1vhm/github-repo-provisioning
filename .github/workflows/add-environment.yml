@@ -109,9 +109,9 @@ jobs:
         run: |
           set -euo pipefail; IFS=$'\n\t'
           {
-            echo "REPO_NAME=$(basename \"${{ steps.parse.outputs.github_repository }}\")"
+            echo "REPO_NAME=$(basename ${{ steps.parse.outputs.github_repository }})"
             echo "ENV_NAME=${{ steps.parse.outputs.environment_identifier }}"
-            echo "WORKLOAD_ID=$(basename \"${{ steps.parse.outputs.github_repository }}\")-${{ steps.parse.outputs.environment_identifier }}"
+            echo "WORKLOAD_ID=$(basename ${{ steps.parse.outputs.github_repository }})-${{ steps.parse.outputs.environment_identifier }}"
             } >> "$GITHUB_ENV"
 
       - name: Port log – start

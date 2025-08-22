@@ -207,6 +207,7 @@ jobs:
         working-directory: repositories/modules/environment
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ env.GH_ORG }}
           ARM_USE_OIDC: true
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -222,6 +223,7 @@ jobs:
         working-directory: repositories/modules/environment
         env:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ env.GH_ORG }}
           ARM_USE_OIDC: true
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -232,7 +234,8 @@ jobs:
           terraform apply -auto-approve \
             -var "repository=${{ steps.parse.outputs.github_repository }}" \
             -var "environment_name=${{ steps.parse.outputs.environment_identifier }}" \
-            -var "managed_identity_client_id=${{ steps.parse.outputs.managed_identity_client_id }}"
+            -var "managed_identity_client_id=${{ steps.parse.outputs.managed_identity_client_id }}" \
+            -var "owner=${{ env.GH_ORG }}"
           terraform output -json > tf.json
       - name: Update repository manifest
         shell: bash

@@ -7,6 +7,10 @@ terraform {
   }
 }
 
+provider "github" {
+  owner = var.owner
+}
+
 resource "github_repository_environment" "this" {
   repository  = var.repository
   environment = var.environment_name

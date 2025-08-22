@@ -9,3 +9,7 @@ variable "environment_name" {
 variable "managed_identity_client_id" {
   type = string
 }
+
+variable "owner" {
+  type = string
+}

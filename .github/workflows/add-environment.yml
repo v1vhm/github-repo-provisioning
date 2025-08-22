@@ -162,7 +162,7 @@ jobs:
             else
               echo "# container_name       = \"\""
             fi
-            echo "key                  = \"${{ steps.parse.outputs.environment_identifier }}.tfstate\""
+            echo "key                  = \"${{ steps.parse.outputs.service_identifier }}.tfstate\""
           } > "$env_dir/${{ steps.parse.outputs.environment_identifier }}.state.config"
           cat > "$env_dir/${{ steps.parse.outputs.environment_identifier }}.tfvars" <<EOF
           environment    = "${{ steps.parse.outputs.environment_identifier }}"

@@ -12,6 +12,7 @@ spec:
     permission: push
   environments:
   - testpr_dev_uksouth
+  - testpr_test_uksouth
   template:
     source: https://github.com/v1vhm/template-terraform-service
     context:
@@ -30,4 +31,4 @@ status:
   htmlUrl: https://github.com/v1vhm/testpr-infra
   sshUrl: git@github.com:v1vhm/testpr-infra.git
   phase: active
-  lastUpdatedAt: '2025-08-22T08:58:17Z'
+  lastUpdatedAt: '2025-08-22T20:30:03Z'

@@ -232,7 +232,7 @@ jobs:
         run: |
           set -euo pipefail; IFS=$'\n\t'
           terraform apply -auto-approve \
-            -var "repository=${{ steps.parse.outputs.github_repository }}" \
+            -var "repository=${{ env.REPO_NAME }}" \
             -var "environment_name=${{ steps.parse.outputs.environment_identifier }}" \
             -var "managed_identity_client_id=${{ steps.parse.outputs.managed_identity_client_id }}" \
             -var "owner=${{ env.GH_ORG }}"

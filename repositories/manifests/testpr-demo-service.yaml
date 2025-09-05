@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: GitHubRepository
+metadata:
+  name: testpr-demo-service
+  createdAt: "2025-09-05T15:58:15Z"
+  createdBy: "matt@v1vhm.onmicrosoft.com"
+spec:
+  description: "null"
+  visibility: "public"
+  ownerTeam:
+    slug: "cloud-platform-team"
+    permission: "push"
+  environments: []
+  template:
+    source: "https://github.com/v1vhm/template-terraform-service"
+    context:
+      port_product_identifier: "TESTPR"
+      port_service_identifier: "testpr-demo-service"
+      port_service_name: "demo service"
+      port_service_description: "null"
+      port_cost_centre: "123456"
+      port_owning_team: "Cloud Platform Team"
+      port_owning_team_identifier: "cloud_platform_team"
+      port_repo_visibility: "public"
+      port_owning_team_slug: "cloud-platform-team"
+      port_owner_team_permission: "push"
+status:
+  id: "R_kgDOPqgrQA"
+  htmlUrl: "https://github.com/v1vhm/testpr-demo-service"
+  sshUrl: "git@github.com:v1vhm/testpr-demo-service.git"
+  phase: active
